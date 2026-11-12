@@ -3,7 +3,7 @@
 (() => {
   'use strict';
   // Updated by bump-version.sh together with index.html (?v=) and version.json.
-  const APP_VERSION = '2026.11.12-1901';
+  const APP_VERSION = '2026.11.12-2023';
 
   // ---------- helpers ----------
   const D2R = Math.PI / 180, R2D = 180 / Math.PI;
@@ -378,10 +378,13 @@
   const isAppleTouch = /iP(hone|ad|od)/.test(ua) || isIPadDesktop;
   const platformName = /iPad/.test(ua) || isIPadDesktop ? (isIPadDesktop ? 'iPadOS (デスクトップ表示)' : 'iPadOS')
     : /iPhone|iPod/.test(ua) ? 'iOS' : /Android/.test(ua) ? 'Android' : 'その他';
-  const settings = { axisOffset: 0, invPitch: false, invRoll: false, debug: false };
+  const settings = { axisOffset: 0, invPitch: false, invRoll: false, debug: false, turnScale: 0.1, turnScaleV: 2 };
+  // 旋回計の感度: 端末の回転速度 × turnScale を旋回率とする。既定 0.1 = 端末を 30°/s で回すと標準旋回 3°/s（針が「標準旋回」の目盛り）。
+  const turnK = () => { const k = Number(settings.turnScale); return k > 0 && k <= 1 ? k : 0.1; };
   try {
     const j = JSON.parse(localStorage.getItem('fi.settings') || '{}');
     Object.assign(settings, j);
+    if (j.turnScaleV !== 2) { settings.turnScale = 0.1; settings.turnScaleV = 2; }
   } catch (_) { /* ignore */ }
   if (/[?&#]debug\b/.test(location.search + location.hash)) settings.debug = true;
   const saveSettings = () => { try { localStorage.setItem('fi.settings', JSON.stringify({ ...settings, debug: settings.debug })); } catch (_) { /* ignore */ } };
@@ -516,7 +519,7 @@
       const u = sensor.up;
       sensor.yawSrc = 'orientation';
       sensor.yawRate = -(w[0] * u[0] + w[1] * u[1] + w[2] * u[2]);
-      if (mode === 'sensor') tgt.turn = clamp(deadZone(sensor.yawRate), -30, 30);
+      if (mode === 'sensor') tgt.turn = clamp(deadZone(sensor.yawRate) * turnK(), -30, 30);
     }
   }
 
@@ -588,7 +591,7 @@
       sensor.rr = raw;
       sensor.yawSrc = 'gyro';
       sensor.yawRate = -wUp; // positive about "up" = counter-clockwise = left turn -> negate
-      tgt.turn = clamp(deadZone(sensor.yawRate), -30, 30);
+      tgt.turn = clamp(deadZone(sensor.yawRate) * turnK(), -30, 30);
     }
     const g = e.accelerationIncludingGravity;
     if (g && g.x != null) {
@@ -809,6 +812,7 @@
     $('setInvPitch').checked = !!settings.invPitch;
     $('setInvRoll').checked = !!settings.invRoll;
     $('setDebug').checked = !!settings.debug;
+    $('setTurn').value = String(turnK());
     $('debug').hidden = !settings.debug;
   }
   function onSettingChange() {
@@ -816,11 +820,12 @@
     settings.invPitch = $('setInvPitch').checked;
     settings.invRoll = $('setInvRoll').checked;
     settings.debug = $('setDebug').checked;
+    settings.turnScale = Number($('setTurn').value) || 0.1;
     $('debug').hidden = !settings.debug;
     saveSettings();
     if (mode === 'sensor' && sensor.up) calibrate();
   }
-  ['setAxis', 'setInvPitch', 'setInvRoll', 'setDebug'].forEach(id => $(id).addEventListener('change', onSettingChange));
+  ['setAxis', 'setInvPitch', 'setInvRoll', 'setDebug', 'setTurn'].forEach(id => $(id).addEventListener('change', onSettingChange));
   syncSettingsUI();
   let dbgTimer = 0;
   function renderDebug(now) {
@@ -835,7 +840,7 @@
       `使用角度=${screenAngle()}° (自動:${autoScreenAngle()}° ${angleSrc} / 補正:+${Number(settings.axisOffset) || 0}°)  反転: 上下${settings.invPitch ? 'ON' : 'OFF'} 左右${settings.invRoll ? 'ON' : 'OFF'}\n` +
       `表示 ${innerWidth}×${innerHeight}  ピッチ=${tgt.pitch.toFixed(1)} バンク=${tgt.roll.toFixed(1)}\n` +
       `rotationRate α=${sensor.rr ? n(sensor.rr[0]) : '-'} β=${sensor.rr ? n(sensor.rr[1]) : '-'} γ=${sensor.rr ? n(sensor.rr[2]) : '-'} °/s  軸割当[${describeMap(CANDS[axisLearn.cur])}]${axisLearn.cur ? ' (自動補正)' : ''} 学習${axisLearn.n}  バイアス ${gyroBias.map(v => v.toFixed(2)).join('/')}\n` +
-      `姿勢由来ω x=${sensor.wRef ? n(sensor.wRef[0]) : '-'} y=${sensor.wRef ? n(sensor.wRef[1]) : '-'} z=${sensor.wRef ? n(sensor.wRef[2]) : '-'} → ヨーレート=${sensor.yawRate != null ? n(sensor.yawRate) : '-'}°/s [${sensor.yawSrc || '-'}] (旋回計 ${n(st.turn)}°/s)  横G=${n(sensor.lat)}\n` +
+      `姿勢由来ω x=${sensor.wRef ? n(sensor.wRef[0]) : '-'} y=${sensor.wRef ? n(sensor.wRef[1]) : '-'} z=${sensor.wRef ? n(sensor.wRef[2]) : '-'} → ヨーレート=${sensor.yawRate != null ? n(sensor.yawRate) : '-'}°/s [${sensor.yawSrc || '-'}] (旋回計 ${n(st.turn)}°/s ×${turnK()})  横G=${n(sensor.lat)}\n` +
       `UA: ${ua.slice(0, 110)}`;
   }
   const fsTarget = document.documentElement;
