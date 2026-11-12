@@ -3,7 +3,7 @@
 (() => {
   'use strict';
   // Updated by bump-version.sh together with index.html (?v=) and version.json.
-  const APP_VERSION = '2026.11.13-0717';
+  const APP_VERSION = '2026.11.13-0747';
 
   // ---------- helpers ----------
   const D2R = Math.PI / 180, R2D = 180 / Math.PI;
@@ -379,7 +379,7 @@
   const isAppleTouch = /iP(hone|ad|od)/.test(ua) || isIPadDesktop;
   const platformName = /iPad/.test(ua) || isIPadDesktop ? (isIPadDesktop ? 'iPadOS (デスクトップ表示)' : 'iPadOS')
     : /iPhone|iPod/.test(ua) ? 'iOS' : /Android/.test(ua) ? 'Android' : 'その他';
-  const settings = { axisOffset: 0, invPitch: false, invRoll: false, debug: false, turnScale: 1, turnScaleV: 3, turnSmooth: 1.0 };
+  const settings = { axisOffset: 0, invPitch: false, invRoll: false, debug: false, turnScale: 1, turnScaleV: 3, turnSmooth: 1.0, showThrottle: true };
   // 旋回計のローパス: センサー時は1次遅れを2段重ね（各段 時定数 turnSmooth/2 秒）。
   const turnTau = () => { const t = Number(settings.turnSmooth); return t > 0 && t <= 5 ? t : 1.0; };
   // 旋回計の感度: 端末の回転速度 × turnScale を旋回率とする。既定 1 = 本物と同じ（3°/s で針が「標準旋回」の目盛り）。ローパスと組み合わせて使う。
@@ -850,19 +850,19 @@
     if (root) root.hidden = !show;
     window.dispatchEvent(new Event('resize'));
   }
+  function userShowsThrottle() { return settings.showThrottle !== false; }
   function updateThrottleVisibility(now) {
-    if (mode === 'sim') {
+    const root = $('throttle');
+    if (root) root.classList.toggle('sim-locked', mode === 'sim');
+    // User setting hides the lever in every mode (sensor / demo / sim / Pages).
+    // GPS auto-hide still applies on top when the setting is "表示".
+    if (!userShowsThrottle()) {
       thrWantHide = false;
-      applyThrVisible(true);
-      const root = $('throttle');
-      if (root) root.classList.add('sim-locked');
+      thrWantAt = now;
+      applyThrVisible(false);
       return;
     }
-    const root = $('throttle');
-    if (root) root.classList.remove('sim-locked');
-    // User turned GPS off: show immediately. While GPS is on, wait ~2s before hide/show
-    // so brief signal drops don't make the panel jump.
-    if (!gps.on) {
+    if (mode === 'sim' || !gps.on) {
       thrWantHide = false;
       thrWantAt = now;
       applyThrVisible(true);
@@ -937,6 +937,7 @@
     $('setDebug').checked = !!settings.debug;
     $('setTurn').value = String(turnK());
     $('setTurnLp').value = String(turnTau());
+    if ($('setThrShow')) $('setThrShow').value = userShowsThrottle() ? '1' : '0';
     $('debug').hidden = !settings.debug;
   }
   function onSettingChange() {
@@ -946,11 +947,13 @@
     settings.debug = $('setDebug').checked;
     settings.turnScale = Number($('setTurn').value) || 1;
     settings.turnSmooth = Number($('setTurnLp').value) || 1.0;
+    settings.showThrottle = $('setThrShow') ? $('setThrShow').value !== '0' : true;
     $('debug').hidden = !settings.debug;
     saveSettings();
+    updateThrottleVisibility(performance.now());
     if (mode === 'sensor' && sensor.up) calibrate();
   }
-  ['setAxis', 'setInvPitch', 'setInvRoll', 'setDebug', 'setTurn', 'setTurnLp'].forEach(id => $(id).addEventListener('change', onSettingChange));
+  ['setAxis', 'setInvPitch', 'setInvRoll', 'setDebug', 'setTurn', 'setTurnLp', 'setThrShow'].forEach(id => $(id).addEventListener('change', onSettingChange));
   syncSettingsUI();
   let dbgTimer = 0;
   function renderDebug(now) {
@@ -1283,7 +1286,7 @@
         `[${el.badge.textContent}] ピッチ ${st.pitch.toFixed(1).padStart(6)}°  バンク ${st.roll.toFixed(1).padStart(6)}°\n` +
         `方位 ${String(Math.round(st.hdg) % 360).padStart(3, '0')}°${hdgSrc}  旋回 ${st.turn.toFixed(1)}°/s\n` +
         `速度 ${Math.round(st.ias)}kt  高度 ${Math.round(st.alt)}ft  昇降 ${Math.round(st.vsi)}fpm` +
-        (thrVisible ? (isJet() ? `  N1 ${currentN1().toFixed(1)}%` : `  THR ${Math.round(throttle.pos)}%`) : '') +
+        ((thrVisible || !userShowsThrottle()) ? (isJet() ? `  N1 ${currentN1().toFixed(1)}%` : `  THR ${Math.round(throttle.pos)}%`) : '') +
         (gps.on ? '\n' + gpsStatusLine() : '');
       updateGpsButton();
     }

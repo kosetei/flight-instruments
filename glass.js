@@ -328,11 +328,10 @@
     txt(E.gSpdTop, gsLive ? 'GS' : 'IAS', gsLive ? C.g : C.w);
     const tas = (st.tas != null && isFinite(st.tas)) ? st.tas : st.ias * (1 + 0.02 * Math.max(0, st.alt) / 1000);
     txt(E.gSpdBot, gsLive ? `GS ${Math.round(gps.speedKt)}` : `M .${pad(Math.round(clamp(tas / 661.5, 0, 0.99) * 1000), 3)}`, gsLive ? C.g : C.w);
-    if (FI.throttleVisible && !FI.throttleVisible()) txt(E.gN1, '');
-    else {
-      const n1 = FI.n1 ? FI.n1() : (FI.n1FromThr ? FI.n1FromThr(FI.throttle) : 0);
-      txt(E.gN1, `N1 ${n1.toFixed(1)}`, gsLive ? C.gr : C.g);
-    }
+    // PFD N1 stays even if the throttle lever is hidden by settings.
+    // When GPS ground speed is live the number is dimmed (same as before).
+    const n1 = FI.n1 ? FI.n1() : (FI.n1FromThr ? FI.n1FromThr(FI.throttle) : 0);
+    txt(E.gN1, `N1 ${n1.toFixed(1)}`, gsLive ? C.gr : C.g);
 
     // ---- altitude ----
     const alt = st.alt;
