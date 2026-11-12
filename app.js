@@ -2,6 +2,8 @@
  * Pure static, no dependencies. */
 (() => {
   'use strict';
+  // Updated by bump-version.sh together with index.html (?v=) and version.json.
+  const APP_VERSION = '2026.11.12-1901';
 
   // ---------- helpers ----------
   const D2R = Math.PI / 180, R2D = 180 / Math.PI;
@@ -434,6 +436,7 @@
       const p0 = Math.atan2(us[1], us[2]) * R2D;
       const r0 = attitudeFromUp(us, { p0 }).roll;
       sensor.ref = { p0, r0, lat0: sensor.lat, th: screenAngle() };
+      biasFast = performance.now() + 3000;
       toast('今の姿勢を水平として校正しました');
     } else {
       manual.pitch = 0; manual.roll = 0;
@@ -453,7 +456,10 @@
     const R = rotMatrix(alpha, e.beta, e.gamma);
     // world up in device frame = third row of R
     sensor.up = [R[6], R[7], R[8]];
-    if (isAbs || !sensor.absolute) sensor.R = R;
+    if (isAbs || !sensor.absolute) {
+      sensor.R = R;
+      updateRefRate(R, e.timeStamp || performance.now());
+    }
     if (typeof e.webkitCompassHeading === 'number' && !isNaN(e.webkitCompassHeading) && e.webkitCompassHeading >= 0) {
       sensor.compass = e.webkitCompassHeading;
     }
@@ -483,14 +489,77 @@
     }
     if (hdg != null) {
       hdg = wrap360(hdg);
-      const now = performance.now();
-      if (sensor.lastHdg != null && sensor.yawRate == null) {
-        const dt = (now - sensor.lastHdgT) / 1000;
-        if (dt > 0.01) tgt.turn = clamp(wrap180(hdg - sensor.lastHdg) / dt, -30, 30);
-      }
-      sensor.lastHdg = hdg; sensor.lastHdgT = now;
       tgt.hdg = hdg;
     }
+  }
+
+  // ---------- turn rate ----------
+  // Reference angular velocity from successive orientation samples (device frame, deg/s):
+  // R(t) = R(t-dt) * dR  ->  omega = vee(dR - dR^T) / (2 dt).  Independent of any
+  // rotationRate axis convention and free of heading/gimbal problems (no Euler angles
+  // are differentiated, only the full rotation matrix).
+  const deadZone = v => (Math.abs(v) < 0.3 ? 0 : v);
+  function updateRefRate(R, t) {
+    const prev = sensor.prevR;
+    sensor.prevR = R; const pt = sensor.prevRT; sensor.prevRT = t;
+    if (!prev || pt == null) return;
+    const dt = (t - pt) / 1000;
+    if (!(dt > 0.004 && dt < 0.25)) return;
+    // dR = prev^T * R
+    const m = (i, j) => prev[i] * R[j] + prev[i + 3] * R[j + 3] + prev[i + 6] * R[j + 6]; // (prev^T R)[i][j] with i,j cols
+    const d01 = m(0, 1), d10 = m(1, 0), d02 = m(0, 2), d20 = m(2, 0), d12 = m(1, 2), d21 = m(2, 1);
+    const w = [(d21 - d12) / 2 / dt * R2D, (d02 - d20) / 2 / dt * R2D, (d10 - d01) / 2 / dt * R2D];
+    if (!w.every(isFinite) || Math.hypot(w[0], w[1], w[2]) > 720) return; // ignore wrap glitches
+    sensor.wRef = w; sensor.wRefAt = performance.now();
+    // fallback when the device gives no gyro rotationRate: use the orientation-derived rate
+    if (!sensor.rrSeenAt || performance.now() - sensor.rrSeenAt > 500) {
+      const u = sensor.up;
+      sensor.yawSrc = 'orientation';
+      sensor.yawRate = -(w[0] * u[0] + w[1] * u[1] + w[2] * u[2]);
+      if (mode === 'sensor') tgt.turn = clamp(deadZone(sensor.yawRate), -30, 30);
+    }
+  }
+
+  // rotationRate axis mapping, learned at runtime. Candidate = permutation + signs that maps
+  // (alpha, beta, gamma) -> device (x, y, z). Default: alpha=x, beta=y, gamma=z, which is
+  // what WebKit (CoreMotion rotationRate.x/y/z), Chrome and Firefox deliver and what the
+  // current spec says. If the measured gyro disagrees with the orientation-derived rate,
+  // the best-fitting mapping wins.
+  const PERMS = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]];
+  const CANDS = [];
+  for (const p of PERMS) for (let sgn = 0; sgn < 8; sgn++) CANDS.push({ p, s: [sgn & 1 ? -1 : 1, sgn & 2 ? -1 : 1, sgn & 4 ? -1 : 1] });
+  const axisLearn = { err: new Float64Array(CANDS.length), n: 0, cur: 0 }; // CANDS[0] = identity
+  const mapRR = (c, raw) => [c.s[0] * raw[c.p[0]], c.s[1] * raw[c.p[1]], c.s[2] * raw[c.p[2]]];
+  const NAMES = ['α', 'β', 'γ'];
+  const describeMap = c => ['x', 'y', 'z'].map((ax, i) => `${ax}=${c.s[i] < 0 ? '-' : ''}${NAMES[c.p[i]]}`).join(' ');
+  function learnAxes(raw) {
+    const w = sensor.wRef;
+    if (!w || performance.now() - sensor.wRefAt > 60) return;
+    const mag = Math.hypot(w[0], w[1], w[2]);
+    if (mag < 25 || Math.hypot(raw[0], raw[1], raw[2]) < 25) return; // need real motion
+    const E = axisLearn.err;
+    for (let i = 0; i < CANDS.length; i++) {
+      const v = mapRR(CANDS[i], raw);
+      E[i] = E[i] * 0.995 + ((v[0] - w[0]) ** 2 + (v[1] - w[1]) ** 2 + (v[2] - w[2]) ** 2) / (mag * mag);
+    }
+    axisLearn.n++;
+    if (axisLearn.n < 30) return;
+    let best = 0;
+    for (let i = 1; i < CANDS.length; i++) if (E[i] < E[best]) best = i;
+    if (best !== axisLearn.cur && E[best] < 0.35 * E[axisLearn.cur]) { axisLearn.cur = best; gyroBias.fill(0); }
+  }
+
+  // Gyro bias: slow running average of (gyro - orientation-derived rate) while turning slowly.
+  // Works while hand-held (no need to put the device down); clamped to ±5°/s. On iOS CoreMotion
+  // already removes most bias, so this usually stays near 0.
+  const gyroBias = [0, 0, 0];
+  let biasFast = 0; // after 校正: converge faster for a few seconds
+  function updateBias(w, dt) {
+    const r = sensor.wRef;
+    if (!r || performance.now() - sensor.wRefAt > 60 || Math.hypot(r[0], r[1], r[2]) > 60) return;
+    const tau = performance.now() < biasFast ? 0.7 : 2.5;
+    const k = 1 - Math.exp(-Math.min(dt, 0.1) / tau);
+    for (let i = 0; i < 3; i++) gyroBias[i] = clamp(gyroBias[i] + (w[i] - r[i] - gyroBias[i]) * k, -5, 5);
   }
 
   function onMotion(e) {
@@ -507,11 +576,19 @@
       // Yaw (turn) rate = angular velocity projected on the world vertical, so
       // pitch/roll motion contributes nothing regardless of how the device is held
       // or how the screen is rotated (both vectors are in the device frame).
-      const wx = rr.alpha, wy = rr.beta, wz = rr.gamma;
+      const raw = [rr.alpha, rr.beta, rr.gamma];
+      sensor.rrSeenAt = performance.now();
+      learnAxes(raw);
+      const mapped = mapRR(CANDS[axisLearn.cur], raw);
+      const nowT = performance.now();
+      updateBias(mapped, sensor.lastRRT ? (nowT - sensor.lastRRT) / 1000 : 0.016);
+      sensor.lastRRT = nowT;
+      const wx = mapped[0] - gyroBias[0], wy = mapped[1] - gyroBias[1], wz = mapped[2] - gyroBias[2];
       const wUp = wx * u[0] + wy * u[1] + wz * u[2];
-      sensor.rr = [wx, wy, wz];
+      sensor.rr = raw;
+      sensor.yawSrc = 'gyro';
       sensor.yawRate = -wUp; // positive about "up" = counter-clockwise = left turn -> negate
-      tgt.turn = clamp(Math.abs(sensor.yawRate) < 0.15 ? 0 : sensor.yawRate, -30, 30);
+      tgt.turn = clamp(deadZone(sensor.yawRate), -30, 30);
     }
     const g = e.accelerationIncludingGravity;
     if (g && g.x != null) {
@@ -752,12 +829,13 @@
     const r = sensor.raw, so = screen.orientation;
     const n = v => (typeof v === 'number' ? v.toFixed(1) : String(v));
     $('debug').textContent =
-      `端末: ${platformName}  タッチ点数:${navigator.maxTouchPoints || 0}\n` +
+      `バージョン ${APP_VERSION}  端末: ${platformName}  タッチ点数:${navigator.maxTouchPoints || 0}\n` +
       `raw α=${r ? n(r.a) : '-'} β=${r ? n(r.b) : '-'} γ=${r ? n(r.g) : '-'}${r && r.abs ? ' (absolute)' : ''}${r && r.ch != null ? ' compass=' + n(r.ch) : ''}\n` +
       `window.orientation=${n(window.orientation)}  screen.orientation=${so ? so.type + ' / ' + so.angle + '°' : 'なし'}\n` +
       `使用角度=${screenAngle()}° (自動:${autoScreenAngle()}° ${angleSrc} / 補正:+${Number(settings.axisOffset) || 0}°)  反転: 上下${settings.invPitch ? 'ON' : 'OFF'} 左右${settings.invRoll ? 'ON' : 'OFF'}\n` +
       `表示 ${innerWidth}×${innerHeight}  ピッチ=${tgt.pitch.toFixed(1)} バンク=${tgt.roll.toFixed(1)}\n` +
-      `rotationRate x=${sensor.rr ? n(sensor.rr[0]) : '-'} y=${sensor.rr ? n(sensor.rr[1]) : '-'} z=${sensor.rr ? n(sensor.rr[2]) : '-'} °/s → ヨーレート=${sensor.yawRate != null ? n(sensor.yawRate) : '-'}°/s (旋回計 ${n(st.turn)}°/s)  横G=${n(sensor.lat)}\n` +
+      `rotationRate α=${sensor.rr ? n(sensor.rr[0]) : '-'} β=${sensor.rr ? n(sensor.rr[1]) : '-'} γ=${sensor.rr ? n(sensor.rr[2]) : '-'} °/s  軸割当[${describeMap(CANDS[axisLearn.cur])}]${axisLearn.cur ? ' (自動補正)' : ''} 学習${axisLearn.n}  バイアス ${gyroBias.map(v => v.toFixed(2)).join('/')}\n` +
+      `姿勢由来ω x=${sensor.wRef ? n(sensor.wRef[0]) : '-'} y=${sensor.wRef ? n(sensor.wRef[1]) : '-'} z=${sensor.wRef ? n(sensor.wRef[2]) : '-'} → ヨーレート=${sensor.yawRate != null ? n(sensor.yawRate) : '-'}°/s [${sensor.yawSrc || '-'}] (旋回計 ${n(st.turn)}°/s)  横G=${n(sensor.lat)}\n` +
       `UA: ${ua.slice(0, 110)}`;
   }
   const fsTarget = document.documentElement;
@@ -811,6 +889,8 @@
     const useTrack = gpsLive() && gps.track != null && gps.speedKt != null && gps.speedKt > 3;
     if (useTrack) tgt.hdg = gps.track;
     hdgSource = useTrack ? 'GPS TRK' : mode === 'sensor' ? (sensor.compass != null || sensor.absolute ? 'COMPASS' : 'GYRO (REL)') : 'SIM';
+
+    if (mode === 'sensor' && performance.now() - Math.max(sensor.rrSeenAt || 0, sensor.wRefAt || 0) > 600) tgt.turn = 0;
 
     const tau = mode === 'sensor' ? 0.12 : 0.25;
     st.pitch = smooth(st.pitch, tgt.pitch, dt, tau);
@@ -919,8 +999,33 @@
     st, tgt, sensor, gps, gpsLive, display: 'analog', glass: null,
     get mode() { return mode; },
     get hdgSource() { return hdgSource; },
-    settings, screenAngle, autoScreenAngle,
+    settings, screenAngle, autoScreenAngle, axisLearn, CANDS, version: APP_VERSION,
   };
+  // ---------- version / cache busting ----------
+  // GitHub Pages serves everything with "Cache-Control: max-age=600", so a phone may keep an
+  // old index.html/app.js for up to 10 minutes (Safari sometimes longer when restoring tabs).
+  // The script/CSS URLs carry ?v=<version>; additionally we ask the server (bypassing the cache)
+  // which version is current and, if this page is older, reload once with a fresh URL.
+  { const v = $('appVer'); if (v) v.textContent = APP_VERSION; }
+  function checkVersion() {
+    if (!window.fetch || location.protocol === 'file:') return;
+    fetch('version.json?t=' + Date.now(), { cache: 'no-store' })
+      .then(r => (r.ok ? r.json() : null))
+      .then(j => {
+        if (!j || !j.version || j.version === APP_VERSION) return;
+        let tried = '';
+        try { tried = sessionStorage.getItem('fi.reloadedFor') || ''; } catch (_) { /* ignore */ }
+        if (tried === j.version) { toast(`新しいバージョン ${j.version} があります。ページを再読み込みしてください`, 6000); return; }
+        try { sessionStorage.setItem('fi.reloadedFor', j.version); } catch (_) { /* ignore */ }
+        const q = new URLSearchParams(location.search);
+        q.set('v', j.version);
+        location.replace(location.pathname + '?' + q.toString() + location.hash);
+      })
+      .catch(() => {});
+  }
+  checkVersion();
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkVersion(); });
+
   setMode('idle');
   requestAnimationFrame(t => { last = t; step(t); });
 })();

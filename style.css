@@ -145,3 +145,4 @@ body.glass #readout { display: none; }
   font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: #9fe39f; white-space: pre-wrap; word-break: break-all;
 }
 #debug[hidden] { display: none; }
+.ver { margin: 10px 0 0; font-size: 11px; color: #777; text-align: right; }
