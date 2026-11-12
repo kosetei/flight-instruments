@@ -211,3 +211,15 @@ body.glass #readout { display: none; }
   #throttle { flex-basis: 36px; width: 36px; }
   .thr-knob { width: 24px; margin-left: -12px; }
 }
+
+/* ---- MSFS sim link ---- */
+.sim-status {
+  font-size: 12px; padding: 4px 10px; border-radius: 999px;
+  background: #111; border: 1px solid #3a3d43; color: #ffd28a; white-space: nowrap;
+}
+.sim-status.ok { color: #9fe39f; border-color: #2a6a3a; }
+.sim-status.wait { color: #f0b24a; border-color: #8a5a20; }
+#throttle.sim-locked, #throttle.sim-locked .thr-track { pointer-events: none; cursor: default; }
+@media (max-width: 480px) {
+  .sim-status { font-size: 11px; padding: 3px 8px; }
+}

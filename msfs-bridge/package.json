@@ -1,0 +1,19 @@
+{
+  "name": "flight-instruments-msfs-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MSFS 2020 SimConnect bridge for the flight-instruments panel",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "mock": "node server.js --mock"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "node-simconnect": "^4.2.1",
+    "ws": "^8.18.0"
+  }
+}

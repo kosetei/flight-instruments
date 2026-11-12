@@ -326,11 +326,11 @@
     spdR.forEach((n, i) => txt(n, String((d + i - 1 + 10) % 10)));
     setT(E.gSpdRoll, `translate(0 ${f(fr * 18)})`);
     txt(E.gSpdTop, gsLive ? 'GS' : 'IAS', gsLive ? C.g : C.w);
-    const tas = st.ias * (1 + 0.02 * Math.max(0, st.alt) / 1000);
+    const tas = (st.tas != null && isFinite(st.tas)) ? st.tas : st.ias * (1 + 0.02 * Math.max(0, st.alt) / 1000);
     txt(E.gSpdBot, gsLive ? `GS ${Math.round(gps.speedKt)}` : `M .${pad(Math.round(clamp(tas / 661.5, 0, 0.99) * 1000), 3)}`, gsLive ? C.g : C.w);
     if (FI.throttleVisible && !FI.throttleVisible()) txt(E.gN1, '');
     else {
-      const n1 = FI.n1FromThr ? FI.n1FromThr(FI.throttle) : 0;
+      const n1 = FI.n1 ? FI.n1() : (FI.n1FromThr ? FI.n1FromThr(FI.throttle) : 0);
       txt(E.gN1, `N1 ${n1.toFixed(1)}`, gsLive ? C.gr : C.g);
     }
 
@@ -347,7 +347,8 @@
     altR.forEach((n, i) => txt(n, pad((((idx + i - 1) % 5) + 5) % 5 * 20, 2)));
     setT(E.gAltRoll, `translate(0 ${f(afr * 13)})`);
     txt(E.gAltTop, altLive ? 'GPS ALT' : 'ALT', altLive ? C.g : C.w);
-    txt(E.gAltBot, altLive ? 'GPS MSL' : gps.on ? 'SIM' : 'STD', altLive ? C.g : gps.on ? C.a : C.c);
+    if (mode === 'sim' && FI.simBaro != null) txt(E.gAltBot, Number(FI.simBaro).toFixed(2), C.c);
+    else txt(E.gAltBot, altLive ? 'GPS MSL' : gps.on ? 'SIM' : 'STD', altLive ? C.g : gps.on ? C.a : C.c);
 
     // ---- vertical speed ----
     const vs = st.vsi;
@@ -362,8 +363,8 @@
     const hdg = wrap360(st.hdg);
     setT(E.gRose, `rotate(${fh(-hdg)} 200 368)`);
     txt(E.gHdgTxt, pad(Math.round(hdg) % 360 || 360, 3));
-    const srcLbl = hdgSrc === 'GPS TRK' ? 'TRK' : hdgSrc === 'COMPASS' ? 'MAG' : hdgSrc === 'SIM' ? 'SIM' : 'REL';
-    txt(E.gHdgSrc, srcLbl, hdgSrc === 'GPS TRK' || hdgSrc === 'COMPASS' ? C.g : hdgSrc === 'SIM' ? C.w : C.a);
+    const srcLbl = hdgSrc === 'GPS TRK' ? 'TRK' : hdgSrc === 'COMPASS' ? 'MAG' : hdgSrc === 'MSFS' ? 'MSFS' : hdgSrc === 'SIM' ? 'SIM' : 'REL';
+    txt(E.gHdgSrc, srcLbl, hdgSrc === 'GPS TRK' || hdgSrc === 'COMPASS' || hdgSrc === 'MSFS' ? C.g : hdgSrc === 'SIM' ? C.w : C.a);
     const tpred = clamp(st.turn * 10, -60, 60);
     E.gTrend.setAttribute('d', Math.abs(tpred) > 1 ? arc(200, 368, 80, Math.min(0, tpred), Math.max(0, tpred)) : '');
     txt(E.gTurnTxt, Math.abs(st.turn) >= 0.5 ? `${st.turn > 0 ? 'R' : 'L'} ${Math.abs(st.turn).toFixed(1)}°/s` : '', C.g);
@@ -372,19 +373,27 @@
     else E.gTrk.style.display = 'none';
 
     // ---- FMA ----
-    txt(E.fma0, gsLive ? 'GPS GS' : 'SIM SPD', gsLive ? C.g : gps.on ? C.a : C.w);
-    txt(E.fma1, altLive ? 'GPS ALT' : 'SIM ALT', altLive ? C.g : gps.on ? C.a : C.w);
-    txt(E.fma2, hdgSrc === 'GYRO (REL)' ? 'GYRO REL' : hdgSrc === 'SIM' ? 'SIM HDG' : hdgSrc, hdgSrc === 'GPS TRK' || hdgSrc === 'COMPASS' ? C.g : hdgSrc === 'SIM' ? C.w : C.a);
-    txt(E.fma3, { sensor: 'GYRO ATT', manual: 'MANUAL', demo: 'DEMO', idle: 'STBY' }[mode] || mode, mode === 'sensor' ? C.g : C.c);
-    txt(E.fma4, !gps.on ? 'GPS OFF' : live ? `GPS ±${gps.acc != null ? Math.round(gps.acc) : '?'}m` : 'GPS ACQ', !gps.on ? C.gr : live ? C.g : C.a);
+    if (mode === 'sim') {
+      txt(E.fma0, 'MSFS SPD', C.g);
+      txt(E.fma1, 'MSFS ALT', C.g);
+      txt(E.fma2, 'MSFS HDG', C.g);
+      txt(E.fma3, 'MSFS ATT', C.g);
+      txt(E.fma4, FI.simBaro != null ? `BARO ${Number(FI.simBaro).toFixed(2)}` : 'MSFS', C.c);
+    } else {
+      txt(E.fma0, gsLive ? 'GPS GS' : 'SIM SPD', gsLive ? C.g : gps.on ? C.a : C.w);
+      txt(E.fma1, altLive ? 'GPS ALT' : 'SIM ALT', altLive ? C.g : gps.on ? C.a : C.w);
+      txt(E.fma2, hdgSrc === 'GYRO (REL)' ? 'GYRO REL' : hdgSrc === 'SIM' ? 'SIM HDG' : hdgSrc, hdgSrc === 'GPS TRK' || hdgSrc === 'COMPASS' || hdgSrc === 'MSFS' ? C.g : hdgSrc === 'SIM' ? C.w : C.a);
+      txt(E.fma3, { sensor: 'GYRO ATT', manual: 'MANUAL', demo: 'DEMO', idle: 'STBY' }[mode] || mode, mode === 'sensor' ? C.g : C.c);
+      txt(E.fma4, !gps.on ? 'GPS OFF' : live ? `GPS ±${gps.acc != null ? Math.round(gps.acc) : '?'}m` : 'GPS ACQ', !gps.on ? C.gr : live ? C.g : C.a);
+    }
 
     // ---- ND ----
-    const gs = gsLive ? gps.speedKt : st.ias;
+    const gs = (mode === 'sim' && st.gs != null) ? st.gs : (gsLive ? gps.speedKt : st.ias);
     const trk = live && gps.track != null ? gps.track : hdg;
     updateTrail(dt, gs, trk);
     setT(E.gNdRose, `rotate(${fh(-hdg)} ${AX} ${AY})`);
     txt(E.gNdHdg, pad(Math.round(hdg) % 360 || 360, 3));
-    txt(E.gNdHdgSrc, srcLbl, hdgSrc === 'GPS TRK' || hdgSrc === 'COMPASS' ? C.g : hdgSrc === 'SIM' ? C.w : C.a);
+    txt(E.gNdHdgSrc, srcLbl, hdgSrc === 'GPS TRK' || hdgSrc === 'COMPASS' || hdgSrc === 'MSFS' ? C.g : hdgSrc === 'SIM' ? C.w : C.a);
     setT(E.gNdTrk, `rotate(${f(wrap180(trk - hdg))} ${AX} ${AY})`);
     txt(E.gNdSpd, gsLive ? `GS ${Math.round(gs)}   TAS ---` : `GS ${Math.round(tas)}   TAS ${Math.round(tas)}`);
     txt(E.gNdSpd2, `${srcLbl === 'TRK' ? 'TRK' : 'HDG'} ${pad(Math.round(hdg) % 360 || 360, 3)}  ALT ${Math.round(st.alt)}`);

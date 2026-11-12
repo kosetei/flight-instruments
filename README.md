@@ -89,9 +89,15 @@ GitHub Pages はファイルを最大10分キャッシュします。ページ�
 今のバージョンは「？」画面の下とデバッグ表示（`?debug`）の1行目に出ます。それでも古いままなら、タブを閉じて開き直すか URL に `?v=適当な文字` を付けて開いてください。
 （開発者向け: 公開前に `./bump-version.sh` を実行すると、バージョン番号が `app.js`・`index.html` の `?v=`・`version.json` に書き込まれます）
 
+## MSFS 2020 と連携する（LAN ブリッジ）
+
+Windows 上の Microsoft Flight Simulator 2020 の計器値を、同じ Wi-Fi の iPad / スマホに送れます。やり方は [`msfs-bridge/README.md`](msfs-bridge/README.md) にあります（`start.bat` を実行し、表示された URL を iPad で開くだけです）。
+
+GitHub Pages の公開ページ（ジャイロ／GPS 用）の動きは変わりません。MSFS 連携はブリッジ経由の URL を開いたときだけ有効です。
+
 ## ローカルで動かす
 
-ビルド不要・外部ライブラリなしの HTML/CSS/JavaScript だけで出来ています。
+ビルド不要・外部ライブラリなしの HTML/CSS/JavaScript だけで出来ています（MSFS 連携を使う場合だけ Node.js が必要です）。
 
 ```sh
 python3 -m http.server 8000
@@ -103,6 +109,7 @@ python3 -m http.server 8000
 - `index.html` … ページ本体
 - `style.css` … ダークなコックピット風デザイン、縦横レスポンシブ
 - `glass.js` … グラスコックピット表示（PFD／ND）
-- `app.js` … SVG計器の描画、センサー処理（平滑化・校正・画面回転補正）、GPS処理、スロットル、簡易フライトモデル（小型機／旅客機）
+- `app.js` … SVG計器の描画、センサー処理（平滑化・校正・画面回転補正）、GPS処理、スロットル、簡易フライトモデル（小型機／旅客機）、MSFS ブリッジ接続
+- `msfs-bridge/` … MSFS 2020 用 SimConnect ブリッジ（LAN 配信 + WebSocket）
 
 ※ 計器の動きは雰囲気を楽しむためのもので、実際の航法には使えません。

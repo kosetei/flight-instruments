@@ -3,7 +3,7 @@
 (() => {
   'use strict';
   // Updated by bump-version.sh together with index.html (?v=) and version.json.
-  const APP_VERSION = '2026.11.12-2123';
+  const APP_VERSION = '2026.11.13-0717';
 
   // ---------- helpers ----------
   const D2R = Math.PI / 180, R2D = 180 / Math.PI;
@@ -178,7 +178,7 @@
     for (let i = 0; i < 10; i++) s += num(i * 36, 59, i, 17);
     // Kollsman window
     s += `<rect x="34" y="-9" width="34" height="18" rx="2" fill="#000" stroke="#555"/>
-          <text x="51" y="0.5" font-size="11" class="num" style="fill:#fff">29.92</text>
+          <text id="altBaro" x="51" y="0.5" font-size="11" class="num" style="fill:#fff">29.92</text>
           <text y="-28" font-size="10" class="lbl">ALT</text>
           <text y="-17" font-size="6.5" class="lbl">100 FEET</text>
           <text y="28" font-size="6" class="lbl" style="fill:#aaa">CALIBRATED TO</text>
@@ -292,7 +292,7 @@
     tcPlane: $('tcPlane'), tcBall: $('tcBall'), hiCard: $('hiCard'), vsi: $('vsiNeedle'),
     readout: $('readout'), badge: $('modeBadge'),
     asiLabel: $('asiLabel'), asiGS: $('asiGS'), asiGSTxt: $('asiGSTxt'), asiCap: document.querySelector('#asi .cap'),
-    altSrc: $('altSrc'), vsiSrc: $('vsiSrc'), hiSrc: $('hiSrc'), btnGps: $('btnGps'),
+    altSrc: $('altSrc'), altBaro: $('altBaro'), vsiSrc: $('vsiSrc'), hiSrc: $('hiSrc'), btnGps: $('btnGps'),
   };
 
   // ---------- layout ----------
@@ -328,13 +328,14 @@
   // ---------- state ----------
   const st = { pitch: 0, roll: 0, hdg: 0, turn: 0, slip: 0, ias: 105, alt: 3500, vsi: 0 }; // displayed
   const tgt = { pitch: 0, roll: 0, hdg: 0, turn: 0, slip: 0 };
-  let mode = 'idle'; // idle | demo | manual | sensor
+  let mode = 'idle'; // idle | demo | manual | sensor | sim
+  const sim = { wanted: false, force: false, ever: false, ws: null, pkt: null, n1: null, baro: null, retry: 0, timer: 0 };
   let demoT = 0;
   const manual = { pitch: 0, roll: 0 };
 
   function setMode(m) {
     mode = m;
-    const names = { idle: '待機中', demo: 'デモ飛行', manual: '手動操縦', sensor: 'センサー操縦' };
+    const names = { idle: '待機中', demo: 'デモ飛行', manual: '手動操縦', sensor: 'センサー操縦', sim: 'MSFS' };
     el.badge.textContent = names[m] || m;
     $('btnDemo').classList.toggle('on', m === 'demo');
     $('btnSensor').classList.toggle('on', m === 'sensor');
@@ -436,6 +437,7 @@
   }
 
   function calibrate() {
+    if (mode === 'sim') return;
     if (mode === 'sensor' && sensor.up) {
       const us = toScreen(sensor.up, screenAngle());
       const p0 = Math.atan2(us[1], us[2]) * R2D;
@@ -623,6 +625,7 @@
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && mode === 'sensor') keepAwake(); });
 
   function enableSensors() {
+    if (blockSimInput()) return;
     const hasDO = typeof window.DeviceOrientationEvent !== 'undefined';
     if (!hasDO) { toast('この端末/ブラウザはセンサーに対応していません。デモモードで表示します'); startDemo(); return; }
     if (!window.isSecureContext) toast('センサーの利用にはHTTPS接続が必要です');
@@ -735,6 +738,7 @@
   }
 
   function startGps() {
+    if (blockSimInput()) return;
     if (gps.on) return;
     if (!('geolocation' in navigator)) { toast('このブラウザは位置情報（GPS）に対応していません'); return; }
     if (!window.isSecureContext) { toast('GPSの利用にはHTTPS接続が必要です'); return; }
@@ -757,14 +761,19 @@
   }
   const gpsLive = () => gps.on && gps.fix;
 
-  function startDemo() { setMode('demo'); hideOverlay(); }
+  function blockSimInput() {
+    if (mode !== 'sim') return false;
+    toast('シミュレータ接続中はセンサー・GPS・デモは使いません');
+    return true;
+  }
+  function startDemo() { if (blockSimInput()) return; setMode('demo'); hideOverlay(); }
   function hideOverlay() { $('overlay').classList.add('hidden'); }
   function showOverlay() { $('overlay').classList.remove('hidden'); }
 
   // ---------- manual controls ----------
   let drag = null;
   stage.addEventListener('pointerdown', e => {
-    if (mode === 'sensor') return;
+    if (mode === 'sensor' || mode === 'sim') return;
     drag = { x: e.clientX, y: e.clientY, p: mode === 'manual' ? manual.pitch : tgt.pitch, r: mode === 'manual' ? manual.roll : tgt.roll };
     if (mode !== 'manual') setMode('manual');
     manual.pitch = drag.p; manual.roll = drag.r;
@@ -790,15 +799,19 @@
   window.addEventListener('keydown', e => {
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
       e.preventDefault();
-      if (mode === 'sensor') return;
+      if (mode === 'sensor' || mode === 'sim') return;
       if (mode !== 'manual') setMode('manual');
       keys.add(e.key);
     } else if (isThrKey(e)) {
       e.preventDefault();
+      if (mode === 'sim') return;
       keys.add(thrDir(e));
     } else if (e.key === ' ') {
-      e.preventDefault(); calibrate();
+      e.preventDefault();
+      if (mode === 'sim') return;
+      calibrate();
     } else if (e.key === 'd' || e.key === 'D') {
+      if (mode === 'sim') return;
       startDemo();
     }
   });
@@ -822,6 +835,10 @@
   // ---------- throttle ----------
   const throttle = { pos: 70 };
   const n1FromThr = p => 22 + 0.78 * p;
+  function currentN1() {
+    if (mode === 'sim' && sim.n1 != null && isFinite(sim.n1)) return sim.n1;
+    return n1FromThr(throttle.pos);
+  }
   const THR_HIDE_MS = 2000; // hysteresis so a flickering GPS fix doesn't jiggle the layout
   let thrVisible = true, thrWantHide = false, thrWantAt = 0;
   function isJet() { return !!(window.__flightInstruments && window.__flightInstruments.display === 'glass'); }
@@ -834,6 +851,15 @@
     window.dispatchEvent(new Event('resize'));
   }
   function updateThrottleVisibility(now) {
+    if (mode === 'sim') {
+      thrWantHide = false;
+      applyThrVisible(true);
+      const root = $('throttle');
+      if (root) root.classList.add('sim-locked');
+      return;
+    }
+    const root = $('throttle');
+    if (root) root.classList.remove('sim-locked');
     // User turned GPS off: show immediately. While GPS is on, wait ~2s before hide/show
     // so brief signal drops don't make the panel jump.
     if (!gps.on) {
@@ -848,8 +874,8 @@
   }
   function setThrottle(p) {
     throttle.pos = clamp(p, 0, 100);
-    const jet = isJet();
-    const n1 = n1FromThr(throttle.pos);
+    const jet = isJet() || (mode === 'sim' && sim && sim.n1 != null);
+    const n1 = currentN1();
     const track = $('thrTrack'), fill = $('thrFill'), knob = $('thrKnob');
     const val = $('thrVal'), cap = $('thrCap'), unit = $('thrUnit'), root = $('throttle');
     if (!track) return;
@@ -940,7 +966,7 @@
       `表示 ${innerWidth}×${innerHeight}  ピッチ=${tgt.pitch.toFixed(1)} バンク=${tgt.roll.toFixed(1)}\n` +
       `rotationRate α=${sensor.rr ? n(sensor.rr[0]) : '-'} β=${sensor.rr ? n(sensor.rr[1]) : '-'} γ=${sensor.rr ? n(sensor.rr[2]) : '-'} °/s  軸割当[${describeMap(CANDS[axisLearn.cur])}]${axisLearn.cur ? ' (自動補正)' : ''} 学習${axisLearn.n}  バイアス ${gyroBias.map(v => v.toFixed(2)).join('/')}\n` +
       `姿勢由来ω x=${sensor.wRef ? n(sensor.wRef[0]) : '-'} y=${sensor.wRef ? n(sensor.wRef[1]) : '-'} z=${sensor.wRef ? n(sensor.wRef[2]) : '-'} → ヨーレート=${sensor.yawRate != null ? n(sensor.yawRate) : '-'}°/s [${sensor.yawSrc || '-'}] (旋回計 ${n(st.turn)}°/s ×${turnK()})  横G=${n(sensor.lat)}\n` +
-      `スロットル ${throttle.pos.toFixed(0)}%  N1 ${n1FromThr(throttle.pos).toFixed(1)}%  モデル=${isJet() ? 'JET' : 'GA'}  IAS=${st.ias.toFixed(1)}  VSI=${st.vsi.toFixed(0)}\n` +
+      `スロットル ${throttle.pos.toFixed(0)}%  N1 ${currentN1().toFixed(1)}%  モデル=${isJet() ? 'JET' : 'GA'}  IAS=${st.ias.toFixed(1)}  VSI=${st.vsi.toFixed(0)}\n` +
       `UA: ${ua.slice(0, 110)}`;
   }
   const fsTarget = document.documentElement;
@@ -955,6 +981,70 @@
   if (!window.isSecureContext) note.push('※ センサーの利用にはHTTPS接続が必要です（現在HTTPSではありません）。');
   if (typeof window.DeviceOrientationEvent === 'undefined') note.push('※ このブラウザはモーションセンサーに対応していません。デモ/マウス操作をお使いください。');
   $('ovNote').textContent = note.join(' ');
+
+  // ---------- MSFS bridge (WebSocket /sim) ----------
+  function wantSimLink() {
+    try {
+      const q = new URLSearchParams(location.search);
+      if (q.has('sim')) return 'force';
+      if (location.protocol === 'http:' && location.hostname && !/\.github\.io$/i.test(location.hostname)) return 'auto';
+    } catch (_) { /* ignore */ }
+    return null;
+  }
+  function updateSimStatus() {
+    const node = $('simStatus');
+    if (!node) return;
+    const show = sim.force || sim.ever || (sim.ws && sim.ws.readyState === 1);
+    if (!show) { node.hidden = true; return; }
+    node.hidden = false;
+    if (sim.ws && sim.ws.readyState === 1 && sim.pkt && sim.pkt.simConnected !== false) {
+      node.textContent = 'SIM 接続中';
+      node.className = 'sim-status ok';
+    } else if (sim.ws && sim.ws.readyState === 1) {
+      node.textContent = 'MSFS 待ち';
+      node.className = 'sim-status wait';
+    } else {
+      node.textContent = 'SIM 再接続中…';
+      node.className = 'sim-status wait';
+    }
+  }
+  function applySimPacket(pkt) {
+    if (!pkt || typeof pkt !== 'object') return;
+    sim.pkt = pkt;
+    if (pkt.n1 != null) sim.n1 = pkt.n1;
+    if (pkt.baro != null) sim.baro = pkt.baro;
+    if (pkt.simConnected === false) { updateSimStatus(); return; }
+    if (mode !== 'sim') {
+      if (gps.on) try { stopGps(); } catch (_) { /* ignore */ }
+      setMode('sim');
+      hideOverlay();
+    }
+    sim.ever = true;
+    updateSimStatus();
+  }
+  function connectSim() {
+    const kind = wantSimLink();
+    if (!kind) return;
+    sim.wanted = true;
+    sim.force = kind === 'force';
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const url = proto + '//' + location.host + '/sim';
+    let ws;
+    try { ws = new WebSocket(url); } catch (e) { scheduleSimRetry(); return; }
+    sim.ws = ws;
+    ws.onopen = () => { sim.retry = 0; updateSimStatus(); };
+    ws.onmessage = ev => {
+      try { applySimPacket(JSON.parse(ev.data)); } catch (_) { /* ignore */ }
+    };
+    ws.onclose = () => { if (sim.ws === ws) sim.ws = null; updateSimStatus(); scheduleSimRetry(); };
+    ws.onerror = () => { try { ws.close(); } catch (_) { /* ignore */ } };
+  }
+  function scheduleSimRetry() {
+    if (!sim.wanted) return;
+    clearTimeout(sim.timer);
+    const wait = Math.min(5000, 400 * Math.pow(1.7, sim.retry++));
+    sim.timer = setTimeout(connectSim, wait);
+  }
 
   // ---------- simulation loop ----------
   let last = performance.now();
@@ -986,6 +1076,30 @@
 
     if (keys.has('thrUp')) setThrottle(throttle.pos + 35 * dt);
     if (keys.has('thrDown')) setThrottle(throttle.pos - 35 * dt);
+
+    if (mode === 'sim') {
+      const p = sim.pkt;
+      if (p && p.simConnected !== false) {
+        const tau = 0.07;
+        st.pitch = smooth(st.pitch, p.pitch, dt, tau);
+        st.roll = st.roll + wrap180(p.roll - st.roll) * (1 - Math.exp(-dt / tau));
+        st.hdg = wrap360(st.hdg + (Number(p.turn) || 0) * dt);
+        st.hdg = wrap360(st.hdg + wrap180(p.hdg - st.hdg) * (1 - Math.exp(-dt / 0.08)));
+        st.turn = smooth(st.turn, p.turn, dt, 0.08);
+        st.slip = smooth(st.slip, p.slip, dt, 0.08);
+        st.ias = smooth(st.ias, p.ias, dt, 0.08);
+        st.alt = smooth(st.alt, p.alt, dt, 0.08);
+        st.vsi = smooth(st.vsi, p.vsi, dt, 0.1);
+        st.tas = p.tas != null ? p.tas : null;
+        st.gs = p.gs != null ? p.gs : null;
+        if (p.throttle != null) throttle.pos = clamp(p.throttle, 0, 100);
+        tgt.pitch = p.pitch; tgt.roll = p.roll; tgt.hdg = p.hdg; tgt.turn = p.turn; tgt.slip = p.slip;
+      }
+      hdgSource = 'MSFS';
+      render();
+      requestAnimationFrame(step);
+      return;
+    }
 
     if (mode === 'demo' || mode === 'idle') {
       demoT += dt;
@@ -1106,9 +1220,22 @@
   function renderSources() {
     const gsLive = gpsLive() && gps.speedKt != null;
     const altLive = gpsLive() && gps.hasAlt;
-    const key = [gps.on, gsLive, altLive, hdgSource, gsLive ? Math.round(gps.speedKt) : 0].join('|');
+    const key = [mode, gps.on, gsLive, altLive, hdgSource, gsLive ? Math.round(gps.speedKt) : 0, sim.baro].join('|');
     if (key === lastSrcKey) return;
     lastSrcKey = key;
+    if (mode === 'sim') {
+      el.asiLabel.textContent = 'AIRSPEED';
+      el.asiLabel.setAttribute('font-size', '11');
+      el.asiCap.textContent = '速度計 ASI（MSFS）';
+      el.asiGS.style.display = st.gs != null ? '' : 'none';
+      el.asiGSTxt.textContent = st.gs != null ? `GS ${Math.round(st.gs)}` : 'GS ---';
+      setSrc(el.altSrc, 'MSFS', '#7fe07f');
+      setSrc(el.vsiSrc, 'MSFS', '#7fe07f');
+      setSrc(el.hiSrc, 'MSFS', '#7fe07f');
+      if (el.altBaro && sim.baro != null) el.altBaro.textContent = Number(sim.baro).toFixed(2);
+      return;
+    }
+    if (el.altBaro && mode !== 'sim') el.altBaro.textContent = '29.92';
     el.asiLabel.textContent = gsLive ? 'GROUND SPEED' : 'AIRSPEED';
     el.asiLabel.setAttribute('font-size', gsLive ? '9.5' : '11');
     el.asiCap.textContent = gsLive ? '対地速度計 GS（GPS）' : '速度計 ASI';
@@ -1156,7 +1283,7 @@
         `[${el.badge.textContent}] ピッチ ${st.pitch.toFixed(1).padStart(6)}°  バンク ${st.roll.toFixed(1).padStart(6)}°\n` +
         `方位 ${String(Math.round(st.hdg) % 360).padStart(3, '0')}°${hdgSrc}  旋回 ${st.turn.toFixed(1)}°/s\n` +
         `速度 ${Math.round(st.ias)}kt  高度 ${Math.round(st.alt)}ft  昇降 ${Math.round(st.vsi)}fpm` +
-        (thrVisible ? (isJet() ? `  N1 ${n1FromThr(throttle.pos).toFixed(1)}%` : `  THR ${Math.round(throttle.pos)}%`) : '') +
+        (thrVisible ? (isJet() ? `  N1 ${currentN1().toFixed(1)}%` : `  THR ${Math.round(throttle.pos)}%`) : '') +
         (gps.on ? '\n' + gpsStatusLine() : '');
       updateGpsButton();
     }
@@ -1175,7 +1302,9 @@
     get hdgSource() { return hdgSource; },
     get throttle() { return throttle.pos; },
     throttleVisible: () => thrVisible,
-    setThrottle, n1FromThr, setMode, isJet,
+    setThrottle, n1FromThr, currentN1, setMode, isJet,
+    get simBaro() { return mode === 'sim' ? sim.baro : null; },
+    n1: currentN1,
     settings, screenAngle, autoScreenAngle, axisLearn, CANDS, version: APP_VERSION,
   };
   // ---------- version / cache busting ----------
@@ -1204,5 +1333,6 @@
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkVersion(); });
 
   setMode('idle');
+  connectSim();
   requestAnimationFrame(t => { last = t; step(t); });
 })();
