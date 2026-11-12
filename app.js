@@ -3,7 +3,7 @@
 (() => {
   'use strict';
   // Updated by bump-version.sh together with index.html (?v=) and version.json.
-  const APP_VERSION = '2026.11.12-2023';
+  const APP_VERSION = '2026.11.12-2026';
 
   // ---------- helpers ----------
   const D2R = Math.PI / 180, R2D = 180 / Math.PI;
@@ -378,7 +378,9 @@
   const isAppleTouch = /iP(hone|ad|od)/.test(ua) || isIPadDesktop;
   const platformName = /iPad/.test(ua) || isIPadDesktop ? (isIPadDesktop ? 'iPadOS (デスクトップ表示)' : 'iPadOS')
     : /iPhone|iPod/.test(ua) ? 'iOS' : /Android/.test(ua) ? 'Android' : 'その他';
-  const settings = { axisOffset: 0, invPitch: false, invRoll: false, debug: false, turnScale: 0.1, turnScaleV: 2 };
+  const settings = { axisOffset: 0, invPitch: false, invRoll: false, debug: false, turnScale: 0.1, turnScaleV: 2, turnSmooth: 1.0 };
+  // 旋回計のローパス: センサー時は1次遅れを2段重ね（各段 時定数 turnSmooth/2 秒）。
+  const turnTau = () => { const t = Number(settings.turnSmooth); return t > 0 && t <= 5 ? t : 1.0; };
   // 旋回計の感度: 端末の回転速度 × turnScale を旋回率とする。既定 0.1 = 端末を 30°/s で回すと標準旋回 3°/s（針が「標準旋回」の目盛り）。
   const turnK = () => { const k = Number(settings.turnScale); return k > 0 && k <= 1 ? k : 0.1; };
   try {
@@ -813,6 +815,7 @@
     $('setInvRoll').checked = !!settings.invRoll;
     $('setDebug').checked = !!settings.debug;
     $('setTurn').value = String(turnK());
+    $('setTurnLp').value = String(turnTau());
     $('debug').hidden = !settings.debug;
   }
   function onSettingChange() {
@@ -821,11 +824,12 @@
     settings.invRoll = $('setInvRoll').checked;
     settings.debug = $('setDebug').checked;
     settings.turnScale = Number($('setTurn').value) || 0.1;
+    settings.turnSmooth = Number($('setTurnLp').value) || 1.0;
     $('debug').hidden = !settings.debug;
     saveSettings();
     if (mode === 'sensor' && sensor.up) calibrate();
   }
-  ['setAxis', 'setInvPitch', 'setInvRoll', 'setDebug', 'setTurn'].forEach(id => $(id).addEventListener('change', onSettingChange));
+  ['setAxis', 'setInvPitch', 'setInvRoll', 'setDebug', 'setTurn', 'setTurnLp'].forEach(id => $(id).addEventListener('change', onSettingChange));
   syncSettingsUI();
   let dbgTimer = 0;
   function renderDebug(now) {
@@ -901,7 +905,11 @@
     st.pitch = smooth(st.pitch, tgt.pitch, dt, tau);
     st.roll = st.roll + wrap180(tgt.roll - st.roll) * (1 - Math.exp(-dt / tau));
     st.hdg = wrap360(st.hdg + wrap180(tgt.hdg - st.hdg) * (1 - Math.exp(-dt / (mode === 'sensor' ? 0.25 : 0.05))));
-    st.turn = smooth(st.turn, tgt.turn, dt, 0.35);
+    if (mode === 'sensor') {
+      const tt = turnTau() / 2;
+      st.turnLp = smooth(st.turnLp || 0, tgt.turn, dt, tt);
+      st.turn = smooth(st.turn, st.turnLp, dt, tt);
+    } else { st.turnLp = st.turn = smooth(st.turn, tgt.turn, dt, 0.35); }
     st.slip = smooth(st.slip, tgt.slip, dt, 0.3);
 
     // flight model (fun, not certified!)
