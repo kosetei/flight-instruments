@@ -3,7 +3,7 @@
 (() => {
   'use strict';
   // Updated by bump-version.sh together with index.html (?v=) and version.json.
-  const APP_VERSION = '2026.11.12-2026';
+  const APP_VERSION = '2026.11.12-2032';
 
   // ---------- helpers ----------
   const D2R = Math.PI / 180, R2D = 180 / Math.PI;
@@ -378,15 +378,15 @@
   const isAppleTouch = /iP(hone|ad|od)/.test(ua) || isIPadDesktop;
   const platformName = /iPad/.test(ua) || isIPadDesktop ? (isIPadDesktop ? 'iPadOS (デスクトップ表示)' : 'iPadOS')
     : /iPhone|iPod/.test(ua) ? 'iOS' : /Android/.test(ua) ? 'Android' : 'その他';
-  const settings = { axisOffset: 0, invPitch: false, invRoll: false, debug: false, turnScale: 0.1, turnScaleV: 2, turnSmooth: 1.0 };
+  const settings = { axisOffset: 0, invPitch: false, invRoll: false, debug: false, turnScale: 1, turnScaleV: 3, turnSmooth: 1.0 };
   // 旋回計のローパス: センサー時は1次遅れを2段重ね（各段 時定数 turnSmooth/2 秒）。
   const turnTau = () => { const t = Number(settings.turnSmooth); return t > 0 && t <= 5 ? t : 1.0; };
-  // 旋回計の感度: 端末の回転速度 × turnScale を旋回率とする。既定 0.1 = 端末を 30°/s で回すと標準旋回 3°/s（針が「標準旋回」の目盛り）。
-  const turnK = () => { const k = Number(settings.turnScale); return k > 0 && k <= 1 ? k : 0.1; };
+  // 旋回計の感度: 端末の回転速度 × turnScale を旋回率とする。既定 1 = 本物と同じ（3°/s で針が「標準旋回」の目盛り）。ローパスと組み合わせて使う。
+  const turnK = () => { const k = Number(settings.turnScale); return k > 0 && k <= 1 ? k : 1; };
   try {
     const j = JSON.parse(localStorage.getItem('fi.settings') || '{}');
     Object.assign(settings, j);
-    if (j.turnScaleV !== 2) { settings.turnScale = 0.1; settings.turnScaleV = 2; }
+    if (j.turnScaleV !== 3) { settings.turnScale = 1; settings.turnScaleV = 3; }
   } catch (_) { /* ignore */ }
   if (/[?&#]debug\b/.test(location.search + location.hash)) settings.debug = true;
   const saveSettings = () => { try { localStorage.setItem('fi.settings', JSON.stringify({ ...settings, debug: settings.debug })); } catch (_) { /* ignore */ } };
@@ -823,7 +823,7 @@
     settings.invPitch = $('setInvPitch').checked;
     settings.invRoll = $('setInvRoll').checked;
     settings.debug = $('setDebug').checked;
-    settings.turnScale = Number($('setTurn').value) || 0.1;
+    settings.turnScale = Number($('setTurn').value) || 1;
     settings.turnSmooth = Number($('setTurnLp').value) || 1.0;
     $('debug').hidden = !settings.debug;
     saveSettings();

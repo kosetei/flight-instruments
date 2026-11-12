@@ -11,7 +11,7 @@
 <meta name="description" content="スマホのジャイロで動く、飛行機の6連計器（シックスパック）を再現した静的Webサイト">
 <title>フライト計器パネル｜シックスパック</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-10 -10 20 20'%3E%3Ccircle r='10' fill='%23111'/%3E%3Cpath d='M-9 0A9 9 0 0 1 9 0Z' fill='%233a86d0'/%3E%3Cpath d='M-9 0A9 9 0 0 0 9 0Z' fill='%238a5a2b'/%3E%3Cpath d='M-6 0H-2L0 2L2 0H6' stroke='%23f39c12' stroke-width='1.5' fill='none'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="style.css?v=2026.11.12-2026">
+<link rel="stylesheet" href="style.css?v=2026.11.12-2032">
 </head>
 <body>
 <div id="app">
@@ -72,11 +72,11 @@
       <label class="row"><input type="checkbox" id="setInvRoll"> 左右反転（バンクが逆のとき）</label>
       <label class="row">旋回計の感度
         <select id="setTurn">
-          <option value="0.05">低い（端末を1秒に60°回すと標準旋回）</option>
-          <option value="0.1">標準（1秒に30°で標準旋回）</option>
-          <option value="0.2">やや高い（1秒に15°で標準旋回）</option>
-          <option value="0.5">高い（1秒に6°で標準旋回）</option>
-          <option value="1">等倍（本物と同じ：1秒に3°で標準旋回）</option>
+          <option value="0.05">とても低い（端末を1秒に60°回すと標準旋回）</option>
+          <option value="0.1">低い（1秒に30°で標準旋回）</option>
+          <option value="0.2">やや低い（1秒に15°で標準旋回）</option>
+          <option value="0.5">低め（1秒に6°で標準旋回）</option>
+          <option value="1">等倍・標準（本物と同じ：1秒に3°で標準旋回）</option>
         </select>
       </label>
       <label class="row">旋回計のなめらかさ
@@ -95,7 +95,7 @@
 </div>
 <div id="toast" role="status"></div>
 <pre id="debug" hidden></pre>
-<script src="app.js?v=2026.11.12-2026"></script>
-<script src="glass.js?v=2026.11.12-2026"></script>
+<script src="app.js?v=2026.11.12-2032"></script>
+<script src="glass.js?v=2026.11.12-2032"></script>
 </body>
 </html>
