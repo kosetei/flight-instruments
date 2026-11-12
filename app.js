@@ -498,11 +498,20 @@
     if (mode !== 'sensor' || !sensor.up) return;
     const u = sensor.up;
     const rr = e.rotationRate;
-    if (rr && rr.alpha != null) {
-      // rotationRate: alpha about z, beta about x, gamma about y (deg/s)
-      const wUp = rr.beta * u[0] + rr.gamma * u[1] + rr.alpha * u[2];
-      sensor.yawRate = -wUp; // right turn positive
-      tgt.turn = clamp(sensor.yawRate, -30, 30);
+    if (rr && rr.alpha != null && rr.beta != null && rr.gamma != null) {
+      // NOTE: unlike DeviceOrientationEvent, DeviceMotionEvent.rotationRate is
+      //   alpha = rate about the device X axis, beta = about Y, gamma = about Z  (deg/s)
+      // in Safari (iOS/iPadOS), Chrome and Firefox alike — and the current W3C spec
+      // was changed to match. (Treating alpha as Z made pitch rate show up as yaw
+      // whenever the device was held flat-ish.)
+      // Yaw (turn) rate = angular velocity projected on the world vertical, so
+      // pitch/roll motion contributes nothing regardless of how the device is held
+      // or how the screen is rotated (both vectors are in the device frame).
+      const wx = rr.alpha, wy = rr.beta, wz = rr.gamma;
+      const wUp = wx * u[0] + wy * u[1] + wz * u[2];
+      sensor.rr = [wx, wy, wz];
+      sensor.yawRate = -wUp; // positive about "up" = counter-clockwise = left turn -> negate
+      tgt.turn = clamp(Math.abs(sensor.yawRate) < 0.15 ? 0 : sensor.yawRate, -30, 30);
     }
     const g = e.accelerationIncludingGravity;
     if (g && g.x != null) {
@@ -748,6 +757,7 @@
       `window.orientation=${n(window.orientation)}  screen.orientation=${so ? so.type + ' / ' + so.angle + '°' : 'なし'}\n` +
       `使用角度=${screenAngle()}° (自動:${autoScreenAngle()}° ${angleSrc} / 補正:+${Number(settings.axisOffset) || 0}°)  反転: 上下${settings.invPitch ? 'ON' : 'OFF'} 左右${settings.invRoll ? 'ON' : 'OFF'}\n` +
       `表示 ${innerWidth}×${innerHeight}  ピッチ=${tgt.pitch.toFixed(1)} バンク=${tgt.roll.toFixed(1)}\n` +
+      `rotationRate x=${sensor.rr ? n(sensor.rr[0]) : '-'} y=${sensor.rr ? n(sensor.rr[1]) : '-'} z=${sensor.rr ? n(sensor.rr[2]) : '-'} °/s → ヨーレート=${sensor.yawRate != null ? n(sensor.yawRate) : '-'}°/s (旋回計 ${n(st.turn)}°/s)  横G=${n(sensor.lat)}\n` +
       `UA: ${ua.slice(0, 110)}`;
   }
   const fsTarget = document.documentElement;
