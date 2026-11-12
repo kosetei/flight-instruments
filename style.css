@@ -199,11 +199,7 @@ body.glass #readout { display: none; }
 #throttle.jet .thr-cap { color: #36e05c; }
 #throttle.jet .thr-val { color: #36e05c; }
 #throttle.jet .thr-fill { background: linear-gradient(180deg, #4ae06a, #1a7a32); box-shadow: 0 0 6px rgba(54,224,92,.25); }
-#throttle.gps { opacity: .72; }
-#throttle.gps::after {
-  content: "GPS";
-  font-size: 8px; letter-spacing: .06em; color: #7fe07f; margin-top: -2px;
-}
+#throttle[hidden] { display: none !important; }
 
 @media (max-height: 420px) {
   #throttle { flex-basis: 36px; width: 36px; padding: 4px 2px 3px; gap: 2px; }

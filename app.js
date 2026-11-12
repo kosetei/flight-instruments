@@ -3,7 +3,7 @@
 (() => {
   'use strict';
   // Updated by bump-version.sh together with index.html (?v=) and version.json.
-  const APP_VERSION = '2026.11.12-2052';
+  const APP_VERSION = '2026.11.12-2107';
 
   // ---------- helpers ----------
   const D2R = Math.PI / 180, R2D = 180 / Math.PI;
@@ -822,7 +822,30 @@
   // ---------- throttle ----------
   const throttle = { pos: 70 };
   const n1FromThr = p => 22 + 0.78 * p;
+  const THR_HIDE_MS = 2000; // hysteresis so a flickering GPS fix doesn't jiggle the layout
+  let thrVisible = true, thrWantHide = false, thrWantAt = 0;
   function isJet() { return !!(window.__flightInstruments && window.__flightInstruments.display === 'glass'); }
+  function gsSpeedLive() { return !!(gpsLive() && gps.speedKt != null); }
+  function applyThrVisible(show) {
+    if (show === thrVisible) return;
+    thrVisible = show;
+    const root = $('throttle');
+    if (root) root.hidden = !show;
+    window.dispatchEvent(new Event('resize'));
+  }
+  function updateThrottleVisibility(now) {
+    // User turned GPS off: show immediately. While GPS is on, wait ~2s before hide/show
+    // so brief signal drops don't make the panel jump.
+    if (!gps.on) {
+      thrWantHide = false;
+      thrWantAt = now;
+      applyThrVisible(true);
+      return;
+    }
+    const wantHide = gsSpeedLive();
+    if (wantHide !== thrWantHide) { thrWantHide = wantHide; thrWantAt = now; }
+    if (now - thrWantAt >= THR_HIDE_MS) applyThrVisible(!thrWantHide);
+  }
   function setThrottle(p) {
     throttle.pos = clamp(p, 0, 100);
     const jet = isJet();
@@ -846,7 +869,6 @@
     }
     track.setAttribute('aria-valuenow', String(Math.round(pct)));
     track.setAttribute('aria-valuetext', jet ? `N1 ${n1.toFixed(1)}パーセント` : `${Math.round(pct)}パーセント`);
-    root.classList.toggle('gps', !!(gpsLive() && gps.speedKt != null));
   }
   function bindThrottle() {
     const track = $('thrTrack'), root = $('throttle');
@@ -1057,6 +1079,7 @@
     setSrc(el.hiSrc, hdgSource, hdgSource === 'GPS TRK' ? '#7fe07f' : hdgSource === 'SIM' ? '#aaa' : '#8fc8ff');
   }
   function render() {
+    updateThrottleVisibility(performance.now());
     if (FI.display === 'glass' && FI.glass) {
       try { FI.glass.render(); } catch (e) { console.error(e); FI.glass.setDisplay('analog'); }
     } else renderAnalog();
@@ -1092,8 +1115,8 @@
       el.readout.textContent =
         `[${el.badge.textContent}] ピッチ ${st.pitch.toFixed(1).padStart(6)}°  バンク ${st.roll.toFixed(1).padStart(6)}°\n` +
         `方位 ${String(Math.round(st.hdg) % 360).padStart(3, '0')}°${hdgSrc}  旋回 ${st.turn.toFixed(1)}°/s\n` +
-        `速度 ${Math.round(st.ias)}kt  高度 ${Math.round(st.alt)}ft  昇降 ${Math.round(st.vsi)}fpm  ` +
-        (isJet() ? `N1 ${n1FromThr(throttle.pos).toFixed(1)}%` : `THR ${Math.round(throttle.pos)}%`) +
+        `速度 ${Math.round(st.ias)}kt  高度 ${Math.round(st.alt)}ft  昇降 ${Math.round(st.vsi)}fpm` +
+        (thrVisible ? (isJet() ? `  N1 ${n1FromThr(throttle.pos).toFixed(1)}%` : `  THR ${Math.round(throttle.pos)}%`) : '') +
         (gps.on ? '\n' + gpsStatusLine() : '');
       updateGpsButton();
     }
@@ -1111,6 +1134,7 @@
     get mode() { return mode; },
     get hdgSource() { return hdgSource; },
     get throttle() { return throttle.pos; },
+    throttleVisible: () => thrVisible,
     setThrottle, n1FromThr, setMode, isJet,
     settings, screenAngle, autoScreenAngle, axisLearn, CANDS, version: APP_VERSION,
   };
