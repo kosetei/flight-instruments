@@ -85,6 +85,8 @@ html, body {
 .card h1 { margin: 0 0 8px; font-size: 22px; color: #fff; }
 .lead { margin: 0 0 10px; line-height: 1.6; font-size: 15px; }
 .howto { margin: 0 0 16px; padding-left: 1.2em; font-size: 13px; line-height: 1.6; color: #b9bec5; }
+.opt { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; line-height: 1.5; color: #cfd4da; margin: 0 0 14px; padding: 10px 12px; border: 1px solid #3a3d43; border-radius: 10px; background: #1a1c20; cursor: pointer; }
+.opt input { width: 18px; height: 18px; margin: 2px 0 0; accent-color: #f5a623; flex: none; }
 .actions { display: flex; flex-direction: column; gap: 10px; }
 .actions button { font-size: 16px; padding: 12px 14px; }
 .actions button.primary { background: linear-gradient(#f5a623, #d9800a); color: #1a1000; border-color: #ffbf55; font-weight: 700; }
@@ -110,4 +112,6 @@ html, body {
 }
 @media (max-width: 480px) {
   #toolbar .badge, #toolbar .long { display: none; }
+  #toolbar { gap: 5px; padding: 6px; }
+  #toolbar button { padding: 7px 8px; font-size: 13px; }
 }

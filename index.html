@@ -29,6 +29,7 @@
     <button id="btnCal" type="button" title="今の姿勢を水平（基準）にします">⊕ <span class="long">水平を</span>校正</button>
     <button id="btnDemo" type="button" title="自動飛行デモ">▶ デモ</button>
     <button id="btnSensor" type="button" title="ジャイロセンサーで操縦">📱 センサー</button>
+    <button id="btnGps" type="button" title="GPSで実際の速度・高度・針路を表示">📡 GPS</button>
     <button id="btnFull" type="button" title="全画面表示">⛶</button>
     <button id="btnHelp" type="button" title="使い方">？</button>
   </nav>
@@ -44,8 +45,10 @@
       <li>センサーを有効にした瞬間の構え方が「水平」の基準になります。</li>
       <li>手前に起こす＝機首上げ、奥へ倒す＝機首下げ。ハンドルのように回す＝バンク（傾き）。</li>
       <li>機首を上げると上昇して速度が落ち、下げると降下して加速します。</li>
+      <li>GPSを使うと速度計・高度計・昇降計・方位計が実測値になります（姿勢指示器と旋回計はジャイロのまま）。</li>
       <li>PCではドラッグまたは矢印キーで操縦できます（Spaceで水平に戻す）。</li>
     </ul>
+    <label class="opt"><input type="checkbox" id="ovGps"> 📡 GPSも使う（実際の対地速度・高度・昇降率・針路を表示。屋外・乗り物・飛行機の窓際向け）</label>
     <div class="actions">
       <button id="ovSensor" class="primary" type="button">📱 センサーを有効にする</button>
       <button id="ovDemo" type="button">▶ デモを見る（マウス・キー操作）</button>

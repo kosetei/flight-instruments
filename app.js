@@ -109,7 +109,8 @@
     }
     s += tick(0, 74, 86, 2.2);
     for (let v = 40; v <= 200; v += 20) s += num(asiAngle(v), 57, v, 13);
-    s += `<text y="-22" font-size="11" class="lbl">AIRSPEED</text><text y="24" font-size="9" class="lbl">KNOTS</text>`;
+    s += `<text id="asiLabel" y="-22" font-size="11" class="lbl">AIRSPEED</text><text y="24" font-size="9" class="lbl">KNOTS</text>`;
+    s += `<g id="asiGS" style="display:none"><rect x="-25" y="33" width="50" height="15" rx="2" fill="#000" stroke="#555"/><text id="asiGSTxt" y="41" font-size="10" class="num" style="fill:#7fe07f">GS ---</text></g>`;
     s += needle('asiNeedle', 80, 3.2, 16) + cap(7);
     return frame(s, '速度計 ASI');
   }
@@ -179,7 +180,8 @@
           <text y="-28" font-size="10" class="lbl">ALT</text>
           <text y="-17" font-size="6.5" class="lbl">100 FEET</text>
           <text y="28" font-size="6" class="lbl" style="fill:#aaa">CALIBRATED TO</text>
-          <text y="36" font-size="6" class="lbl" style="fill:#aaa">20,000 FEET</text>`;
+          <text y="36" font-size="6" class="lbl" style="fill:#aaa">20,000 FEET</text>
+          <text id="altSrc" y="49" font-size="7" class="lbl" style="display:none"></text>`;
     s += `<g id="altT10k" filter="url(#fShadow)"><path d="M-0.8 0 L-0.8 -70 L-5 -78 L5 -78 L0.8 -70 L0.8 0 Z" fill="#f4f4f4"/></g>`;
     s += `<g id="altT1k" filter="url(#fShadow)"><path d="M-4 10 L-6 -30 L0 -46 L6 -30 L4 10 Z" fill="#f4f4f4"/></g>`;
     s += needle('altT100', 78, 3, 16);
@@ -246,7 +248,8 @@
         <line x1="0" y1="-48" x2="0" y2="-64" stroke="#f39c12" stroke-width="2"/>
         <path d="M0 -36 L3.5 -28 L3.5 -10 L32 2 L32 8 L3.5 4 L3.5 20 L12 27 L12 31 L0 29 L-12 31 L-12 27 L-3.5 20 L-3.5 4 L-32 8 L-32 2 L-3.5 -10 L-3.5 -28 Z" fill="#f39c12" stroke="#7a4a00" stroke-width=".8"/>
       </g>
-      <text y="46" font-size="7" class="lbl" style="fill:#aaa">HEADING</text>`;
+      <text y="46" font-size="7" class="lbl" style="fill:#aaa">HEADING</text>
+      <text id="hiSrc" y="38.5" font-size="6" class="lbl" style="fill:#7fd17f"></text>`;
     return frame(s, '方位指示器 HI');
   }
 
@@ -267,7 +270,8 @@
     s += `<text x="-38" y="-30" font-size="8" class="lbl">UP</text>
           <text x="-38" y="32" font-size="8" class="lbl">DOWN</text>
           <text x="8" y="-16" font-size="7.5" class="lbl">VERTICAL SPEED</text>
-          <text x="8" y="16" font-size="6" class="lbl" style="fill:#aaa">100 FEET PER MINUTE</text>`;
+          <text x="8" y="16" font-size="6" class="lbl" style="fill:#aaa">100 FEET PER MINUTE</text>
+          <text id="vsiSrc" x="10" y="28" font-size="6.5" class="lbl" style="display:none"></text>`;
     s += needle('vsiNeedle', 80, 3.2, 16) + cap(7);
     return frame(s, '昇降計 VSI');
   }
@@ -285,6 +289,8 @@
     alt100: $('altT100'), alt1k: $('altT1k'), alt10k: $('altT10k'),
     tcPlane: $('tcPlane'), tcBall: $('tcBall'), hiCard: $('hiCard'), vsi: $('vsiNeedle'),
     readout: $('readout'), badge: $('modeBadge'),
+    asiLabel: $('asiLabel'), asiGS: $('asiGS'), asiGSTxt: $('asiGSTxt'), asiCap: document.querySelector('#asi .cap'),
+    altSrc: $('altSrc'), vsiSrc: $('vsiSrc'), hiSrc: $('hiSrc'), btnGps: $('btnGps'),
   };
 
   // ---------- layout ----------
@@ -519,6 +525,110 @@
     });
   }
 
+  // ---------- GPS ----------
+  const gps = {
+    on: false, watchId: null, fix: false, lastFixAt: 0, acc: null, altAcc: null,
+    speedKt: null, speedSrc: '', track: null,
+    altFt: null, vFpm: 0, altInit: false, last: null, errMsg: '',
+  };
+  const M2FT = 3.28084, MS2KT = 1.943844;
+  function haversine(a, b) {
+    const R = 6371008.8, la1 = a.lat * D2R, la2 = b.lat * D2R;
+    const dLa = la2 - la1, dLo = (b.lon - a.lon) * D2R;
+    const h = Math.sin(dLa / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin(dLo / 2) ** 2;
+    return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+  }
+  function bearing(a, b) {
+    const la1 = a.lat * D2R, la2 = b.lat * D2R, dLo = (b.lon - a.lon) * D2R;
+    const y = Math.sin(dLo) * Math.cos(la2);
+    const x = Math.cos(la1) * Math.sin(la2) - Math.sin(la1) * Math.cos(la2) * Math.cos(dLo);
+    return wrap360(Math.atan2(y, x) * R2D);
+  }
+  const num_ = v => typeof v === 'number' && isFinite(v);
+
+  function onGpsPosition(pos) {
+    const c = pos.coords;
+    const t = num_(pos.timestamp) ? pos.timestamp : Date.now();
+    const cur = { lat: c.latitude, lon: c.longitude, t, acc: c.accuracy };
+    gps.fix = true; gps.lastFixAt = performance.now(); gps.errMsg = '';
+    gps.acc = num_(c.accuracy) ? c.accuracy : null;
+    gps.altAcc = num_(c.altitudeAccuracy) ? c.altitudeAccuracy : null;
+
+    // --- ground speed ---
+    let spd = null;
+    const prev = gps.last;
+    const dt = prev ? (t - prev.t) / 1000 : 0;
+    if (num_(c.speed) && c.speed >= 0) { spd = c.speed * MS2KT; gps.speedSrc = 'GPS'; }
+    else if (prev && dt >= 0.8) {
+      const d = haversine(prev, cur);
+      // ignore jitter smaller than the position uncertainty
+      const noise = Math.min(prev.acc || 0, cur.acc || 0) * 0.5;
+      spd = (d > noise ? d : 0) / dt * MS2KT; gps.speedSrc = '位置差分';
+    }
+    if (spd != null) gps.speedKt = gps.speedKt == null ? spd : gps.speedKt + (spd - gps.speedKt) * 0.5;
+
+    // --- track ---
+    if (gps.speedKt != null && gps.speedKt > 3) {
+      if (num_(c.heading)) gps.track = wrap360(c.heading);
+      else if (prev && haversine(prev, cur) > Math.max(3, (cur.acc || 0) * 0.5)) gps.track = bearing(prev, cur);
+    } else gps.track = null;
+
+    // --- altitude: alpha-beta filter (position + vertical velocity) ---
+    if (num_(c.altitude)) {
+      const z = c.altitude * M2FT;
+      if (!gps.altInit || !prev || dt <= 0 || dt > 30) {
+        gps.altFt = z; gps.vFpm = 0; gps.altInit = true;
+      } else {
+        const ds = Math.max(dt, 0.2);
+        const pred = gps.altFt + gps.vFpm / 60 * ds;
+        const r = z - pred;
+        gps.altFt = pred + 0.35 * r;
+        gps.vFpm = clamp(gps.vFpm + 0.08 * r / ds * 60, -8000, 8000);
+      }
+      gps.hasAlt = true;
+    } else gps.hasAlt = false;
+
+    if (!prev || dt >= 0.8 || !num_(c.speed)) gps.last = cur;
+  }
+
+  function onGpsError(err) {
+    if (err.code === 1) {
+      toast('位置情報の利用が許可されませんでした。ブラウザ・端末の設定で位置情報を許可してください', 5500);
+      gps.errMsg = '許可されていません';
+      stopGps();
+    } else if (gps.fix) {
+      // transient error while we still have a recent fix: ignore
+    } else if (err.code === 2) {
+      gps.errMsg = '現在地を取得できません（屋外・窓際で試してください）';
+      if (!gps.warned) { gps.warned = true; toast('GPSの電波を受信できません。屋外や窓際で試してください', 4000); }
+    } else {
+      gps.errMsg = '測位待ち（タイムアウト）';
+    }
+  }
+
+  function startGps() {
+    if (gps.on) return;
+    if (!('geolocation' in navigator)) { toast('このブラウザは位置情報（GPS）に対応していません'); return; }
+    if (!window.isSecureContext) { toast('GPSの利用にはHTTPS接続が必要です'); return; }
+    gps.on = true; gps.fix = false; gps.last = null; gps.speedKt = null; gps.track = null; gps.altInit = false; gps.hasAlt = false; gps.errMsg = ''; gps.warned = false;
+    try {
+      gps.watchId = navigator.geolocation.watchPosition(onGpsPosition, onGpsError, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
+    } catch (e) { gps.on = false; toast('GPSを開始できませんでした'); }
+    updateGpsButton();
+    if (gps.on) toast('GPSを開始しました。測位まで少し待ってください（屋外推奨）');
+  }
+  function stopGps() {
+    if (gps.watchId != null) { try { navigator.geolocation.clearWatch(gps.watchId); } catch (_) { /* ignore */ } }
+    gps.watchId = null; gps.on = false; gps.fix = false;
+    updateGpsButton();
+  }
+  function updateGpsButton() {
+    if (!el.btnGps) return;
+    el.btnGps.classList.toggle('on', gps.on);
+    el.btnGps.textContent = gps.on ? (gps.fix && gps.acc != null ? `📡 ±${Math.round(gps.acc)}m` : '📡 測位中…') : '📡 GPS';
+  }
+  const gpsLive = () => gps.on && gps.fix;
+
   function startDemo() { setMode('demo'); hideOverlay(); }
   function hideOverlay() { $('overlay').classList.add('hidden'); }
   function showOverlay() { $('overlay').classList.remove('hidden'); }
@@ -560,9 +670,11 @@
   window.addEventListener('blur', () => keys.clear());
 
   // ---------- buttons ----------
-  $('ovSensor').addEventListener('click', enableSensors);
+  const wantGps = () => $('ovGps') && $('ovGps').checked;
+  $('ovSensor').addEventListener('click', () => { enableSensors(); if (wantGps()) startGps(); });
+  $('btnGps').addEventListener('click', () => { if (gps.on) { stopGps(); toast('GPSを停止しました（シミュレーションに戻ります）'); } else startGps(); });
   $('btnSensor').addEventListener('click', enableSensors);
-  $('ovDemo').addEventListener('click', startDemo);
+  $('ovDemo').addEventListener('click', () => { if (wantGps()) startGps(); startDemo(); });
   $('btnDemo').addEventListener('click', startDemo);
   $('btnCal').addEventListener('click', calibrate);
   $('btnHelp').addEventListener('click', showOverlay);
@@ -612,6 +724,12 @@
       tgt.hdg = wrap360(tgt.hdg + rate * dt);
     }
 
+    // GPS: stale fix detection & ground track overrides heading
+    if (gps.on && gps.fix && performance.now() - gps.lastFixAt > 12000) { gps.fix = false; gps.errMsg = '信号が途絶えました'; }
+    const useTrack = gpsLive() && gps.track != null && gps.speedKt != null && gps.speedKt > 3;
+    if (useTrack) tgt.hdg = gps.track;
+    hdgSource = useTrack ? 'GPS TRK' : mode === 'sensor' ? (sensor.compass != null || sensor.absolute ? 'COMPASS' : 'GYRO (REL)') : 'SIM';
+
     const tau = mode === 'sensor' ? 0.12 : 0.25;
     st.pitch = smooth(st.pitch, tgt.pitch, dt, tau);
     st.roll = st.roll + wrap180(tgt.roll - st.roll) * (1 - Math.exp(-dt / tau));
@@ -623,7 +741,19 @@
     const p = clamp(st.pitch, -40, 40);
     const bankLoss = 1 / Math.max(0.35, Math.cos(clamp(st.roll, -70, 70) * D2R));
     const iasTarget = clamp(105 - 3.6 * p - (bankLoss - 1) * 12, 35, 195);
-    st.ias = smooth(st.ias, iasTarget, dt, p > 0 ? 3.5 : 2.5);
+    const gsLive = gpsLive() && gps.speedKt != null;
+    st.ias = gsLive ? smooth(st.ias, gps.speedKt, dt, 0.6) : smooth(st.ias, iasTarget, dt, p > 0 ? 3.5 : 2.5);
+    const altLive = gpsLive() && gps.hasAlt;
+    if (altLive) {
+      // extrapolate filtered GPS altitude between fixes, then smooth for display
+      const since = (performance.now() - gps.lastFixAt) / 1000;
+      const altNow = gps.altFt + gps.vFpm / 60 * Math.min(since, 2);
+      st.alt = smooth(st.alt, altNow, dt, 0.5);
+      st.vsi = smooth(st.vsi, gps.vFpm, dt, 0.8);
+      render();
+      requestAnimationFrame(step);
+      return;
+    }
     const sink = (bankLoss - 1) * 250; // steep turns sink a bit
     let vsTrue = st.ias * 101.27 * Math.sin(p * D2R) * 0.9 - sink;
     if (st.alt <= 0 && vsTrue < 0) vsTrue = 0;
@@ -635,8 +765,28 @@
     requestAnimationFrame(step);
   }
 
-  let roTimer = 0;
+  let roTimer = 0, hdgSource = 'SIM', lastSrcKey = '';
+  function setSrc(node, txt, color) {
+    if (!txt) { node.style.display = 'none'; return; }
+    node.style.display = ''; node.textContent = txt; node.style.fill = color;
+  }
+  function renderSources() {
+    const gsLive = gpsLive() && gps.speedKt != null;
+    const altLive = gpsLive() && gps.hasAlt;
+    const key = [gps.on, gsLive, altLive, hdgSource, gsLive ? Math.round(gps.speedKt) : 0].join('|');
+    if (key === lastSrcKey) return;
+    lastSrcKey = key;
+    el.asiLabel.textContent = gsLive ? 'GROUND SPEED' : 'AIRSPEED';
+    el.asiLabel.setAttribute('font-size', gsLive ? '9.5' : '11');
+    el.asiCap.textContent = gsLive ? '対地速度計 GS（GPS）' : '速度計 ASI';
+    el.asiGS.style.display = gps.on ? '' : 'none';
+    el.asiGSTxt.textContent = gsLive ? `GS ${Math.round(gps.speedKt)}` : 'GS ---';
+    setSrc(el.altSrc, gps.on ? (altLive ? 'GPS ALT' : 'SIM（GPS高度なし）') : '', altLive ? '#7fe07f' : '#f0b24a');
+    setSrc(el.vsiSrc, gps.on ? (altLive ? 'GPS' : 'SIM') : '', altLive ? '#7fe07f' : '#f0b24a');
+    setSrc(el.hiSrc, hdgSource, hdgSource === 'GPS TRK' ? '#7fe07f' : hdgSource === 'SIM' ? '#aaa' : '#8fc8ff');
+  }
   function render() {
+    renderSources();
     el.asi.setAttribute('transform', `rotate(${f(asiAngle(st.ias))})`);
     const pp = clamp(st.pitch, -45, 45);
     el.aiCard.setAttribute('transform', `rotate(${f(-st.roll)}) translate(0 ${f(pp * AI_K)})`);
@@ -655,17 +805,25 @@
     const now = performance.now();
     if (now - roTimer > 150) {
       roTimer = now;
-      const hdgSrc = mode === 'sensor'
+      const hdgSrc = hdgSource === 'GPS TRK' ? '（GPS航跡）' : mode === 'sensor'
         ? (sensor.compass != null ? '（コンパス）' : sensor.absolute ? '（磁北）' : '（相対）')
         : '';
       el.readout.textContent =
         `[${el.badge.textContent}] ピッチ ${st.pitch.toFixed(1).padStart(6)}°  バンク ${st.roll.toFixed(1).padStart(6)}°\n` +
         `方位 ${String(Math.round(st.hdg) % 360).padStart(3, '0')}°${hdgSrc}  旋回 ${st.turn.toFixed(1)}°/s\n` +
-        `速度 ${Math.round(st.ias)}kt  高度 ${Math.round(st.alt)}ft  昇降 ${Math.round(st.vsi)}fpm`;
+        `速度 ${Math.round(st.ias)}kt  高度 ${Math.round(st.alt)}ft  昇降 ${Math.round(st.vsi)}fpm` +
+        (gps.on ? '\n' + gpsStatusLine() : '');
+      updateGpsButton();
     }
   }
 
-  window.__flightInstruments = { st, tgt, sensor }; // for debugging
+  function gpsStatusLine() {
+    if (!gps.fix) return `GPS: ${gps.errMsg || '測位中…'}  （速度・高度はシミュレーション）`;
+    const live = gps.speedKt != null ? `速度=GPS(${gps.speedSrc})` : '速度=SIM';
+    const alt = gps.hasAlt ? `高度=GPS${gps.altAcc != null ? ' ±' + Math.round(gps.altAcc) + 'm' : ''}` : '高度=SIM(GPS高度なし)';
+    return `GPS: 測位OK ±${gps.acc != null ? Math.round(gps.acc) : '?'}m  ${live}  ${alt}  方位=${hdgSource}`;
+  }
+  window.__flightInstruments = { st, tgt, sensor, gps }; // for debugging
   setMode('idle');
   requestAnimationFrame(t => { last = t; step(t); });
 })();
