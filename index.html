@@ -56,9 +56,26 @@
       <button id="ovDemo" type="button">▶ デモを見る（マウス・キー操作）</button>
     </div>
     <p id="ovNote" class="note"></p>
+    <details class="settings">
+      <summary>⚙️ 設定（動きの向きがおかしいとき）</summary>
+      <label class="row">軸の補正（回転）
+        <select id="setAxis">
+          <option value="0">自動（補正なし）</option>
+          <option value="90">+90°</option>
+          <option value="180">+180°</option>
+          <option value="270">+270°（−90°）</option>
+        </select>
+      </label>
+      <p class="hint">左右に傾けるとピッチが、前後に傾けるとバンクが動く（軸が入れ替わる）ときは +90° か +270° を、両方が逆のときは +180° を試してください。</p>
+      <label class="row"><input type="checkbox" id="setInvPitch"> 上下反転（機首の上げ下げが逆のとき）</label>
+      <label class="row"><input type="checkbox" id="setInvRoll"> 左右反転（バンクが逆のとき）</label>
+      <label class="row"><input type="checkbox" id="setDebug"> デバッグ表示（センサーの生の値を画面に表示）</label>
+    </details>
+    <div class="actions" style="margin-top:12px"><button id="ovClose" type="button">閉じる</button></div>
   </div>
 </div>
 <div id="toast" role="status"></div>
+<pre id="debug" hidden></pre>
 <script src="app.js"></script>
 <script src="glass.js"></script>
 </body>

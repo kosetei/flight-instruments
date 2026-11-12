@@ -356,11 +356,46 @@
     accSign: 1, lat: 0, yawRate: null, lastHdg: null, lastHdgT: 0,
   };
 
-  function screenAngle() {
-    if (screen.orientation && typeof screen.orientation.angle === 'number') return screen.orientation.angle;
-    if (typeof window.orientation === 'number') return window.orientation;
+  // ---- screen rotation relative to the device's sensor frame ----
+  // DeviceOrientation (alpha/beta/gamma) is always expressed in the device's own frame
+  // (portrait frame on every iPhone/iPad/Android phone). We need the angle by which the
+  // displayed content is rotated against that frame, counter-clockwise positive:
+  //   0 = portrait, 90 = device turned counter-clockwise ("to the left"),
+  //   180 = upside down, 270 = device turned clockwise.
+  // Sources, in order of trust:
+  //  1. window.orientation (deprecated, but the same meaning on iOS, iPadOS and Android for
+  //     10+ years: 0 / 90 = CCW / -90 = CW / 180). Converted with (v + 360) % 360.
+  //  2. On iOS/iPadOS without window.orientation: screen.orientation.type. WebKit computes
+  //     .angle relative to what it treats as the "natural" orientation, which on iPad can be
+  //     landscape -> .angle is off by 90° in both portrait and landscape (pitch/roll swap),
+  //     and Safari 16.4 reported landscape angles mirrored (90 <-> 270).
+  //  3. screen.orientation.angle (correct on Android/Chrome/Firefox per spec).
+  // A manual offset (settings "軸の補正") is added on top in case a device still disagrees.
+  const ua = navigator.userAgent || '';
+  const isIPadDesktop = /Macintosh/.test(ua) && navigator.maxTouchPoints > 1;
+  const isAppleTouch = /iP(hone|ad|od)/.test(ua) || isIPadDesktop;
+  const platformName = /iPad/.test(ua) || isIPadDesktop ? (isIPadDesktop ? 'iPadOS (デスクトップ表示)' : 'iPadOS')
+    : /iPhone|iPod/.test(ua) ? 'iOS' : /Android/.test(ua) ? 'Android' : 'その他';
+  const settings = { axisOffset: 0, invPitch: false, invRoll: false, debug: false };
+  try {
+    const j = JSON.parse(localStorage.getItem('fi.settings') || '{}');
+    Object.assign(settings, j);
+  } catch (_) { /* ignore */ }
+  if (/[?&#]debug\b/.test(location.search + location.hash)) settings.debug = true;
+  const saveSettings = () => { try { localStorage.setItem('fi.settings', JSON.stringify({ ...settings, debug: settings.debug })); } catch (_) { /* ignore */ } };
+  let angleSrc = '';
+  function autoScreenAngle() {
+    if (typeof window.orientation === 'number') { angleSrc = 'window.orientation'; return wrap360(window.orientation); }
+    const so = screen.orientation;
+    if (so && isAppleTouch && typeof so.type === 'string') {
+      const map = { 'portrait-primary': 0, 'landscape-primary': 90, 'portrait-secondary': 180, 'landscape-secondary': 270 };
+      if (so.type in map) { angleSrc = 'screen.orientation.type'; return map[so.type]; }
+    }
+    if (so && typeof so.angle === 'number') { angleSrc = 'screen.orientation.angle'; return wrap360(so.angle); }
+    angleSrc = 'なし(0°)';
     return 0;
   }
+  function screenAngle() { return wrap360(autoScreenAngle() + (Number(settings.axisOffset) || 0)); }
   // device vector -> screen vector
   function toScreen(v, th) {
     const c = Math.cos(th * D2R), s = Math.sin(th * D2R);
@@ -398,7 +433,7 @@
       const us = toScreen(sensor.up, screenAngle());
       const p0 = Math.atan2(us[1], us[2]) * R2D;
       const r0 = attitudeFromUp(us, { p0 }).roll;
-      sensor.ref = { p0, r0, lat0: sensor.lat };
+      sensor.ref = { p0, r0, lat0: sensor.lat, th: screenAngle() };
       toast('今の姿勢を水平として校正しました');
     } else {
       manual.pitch = 0; manual.roll = 0;
@@ -414,6 +449,7 @@
       // a relative event while absolute ones are arriving: only use its tilt
     }
     const alpha = e.alpha == null ? 0 : e.alpha;
+    sensor.raw = { a: e.alpha, b: e.beta, g: e.gamma, abs: !!isAbs, ch: e.webkitCompassHeading };
     const R = rotMatrix(alpha, e.beta, e.gamma);
     // world up in device frame = third row of R
     sensor.up = [R[6], R[7], R[8]];
@@ -427,11 +463,12 @@
     }
     if (mode !== 'sensor') return;
     const th = screenAngle();
+    // re-level automatically when the screen rotates (the old reference is in the old frame)
+    if (!sensor.ref || sensor.ref.th !== th) calibrate();
     const us = toScreen(sensor.up, th);
-    if (!sensor.ref) calibrate();
     const att = attitudeFromUp(us, sensor.ref);
-    tgt.pitch = att.pitch;
-    tgt.roll = wrap180(att.roll - sensor.ref.r0);
+    tgt.pitch = att.pitch * (settings.invPitch ? -1 : 1);
+    tgt.roll = wrap180(att.roll - sensor.ref.r0) * (settings.invRoll ? -1 : 1);
 
     // heading of the "nose"
     let hdg = null;
@@ -474,7 +511,7 @@
       const as = toScreen([g.x * sensor.accSign, g.y * sensor.accSign, g.z * sensor.accSign], screenAngle());
       sensor.lat = -as[0] / 9.81;
       const lat0 = sensor.ref ? sensor.ref.lat0 : 0;
-      tgt.slip = clamp(sensor.lat - lat0, -1, 1);
+      tgt.slip = clamp(sensor.lat - lat0, -1, 1) * (settings.invRoll ? -1 : 1);
     }
   }
 
@@ -677,7 +714,42 @@
   $('ovDemo').addEventListener('click', () => { if (wantGps()) startGps(); startDemo(); });
   $('btnDemo').addEventListener('click', startDemo);
   $('btnCal').addEventListener('click', calibrate);
-  $('btnHelp').addEventListener('click', showOverlay);
+  $('btnHelp').addEventListener('click', () => { syncSettingsUI(); showOverlay(); });
+  $('ovClose').addEventListener('click', hideOverlay);
+
+  // ---------- settings & debug ----------
+  function syncSettingsUI() {
+    $('setAxis').value = String(Number(settings.axisOffset) || 0);
+    $('setInvPitch').checked = !!settings.invPitch;
+    $('setInvRoll').checked = !!settings.invRoll;
+    $('setDebug').checked = !!settings.debug;
+    $('debug').hidden = !settings.debug;
+  }
+  function onSettingChange() {
+    settings.axisOffset = Number($('setAxis').value) || 0;
+    settings.invPitch = $('setInvPitch').checked;
+    settings.invRoll = $('setInvRoll').checked;
+    settings.debug = $('setDebug').checked;
+    $('debug').hidden = !settings.debug;
+    saveSettings();
+    if (mode === 'sensor' && sensor.up) calibrate();
+  }
+  ['setAxis', 'setInvPitch', 'setInvRoll', 'setDebug'].forEach(id => $(id).addEventListener('change', onSettingChange));
+  syncSettingsUI();
+  let dbgTimer = 0;
+  function renderDebug(now) {
+    if (!settings.debug || now - dbgTimer < 200) return;
+    dbgTimer = now;
+    const r = sensor.raw, so = screen.orientation;
+    const n = v => (typeof v === 'number' ? v.toFixed(1) : String(v));
+    $('debug').textContent =
+      `端末: ${platformName}  タッチ点数:${navigator.maxTouchPoints || 0}\n` +
+      `raw α=${r ? n(r.a) : '-'} β=${r ? n(r.b) : '-'} γ=${r ? n(r.g) : '-'}${r && r.abs ? ' (absolute)' : ''}${r && r.ch != null ? ' compass=' + n(r.ch) : ''}\n` +
+      `window.orientation=${n(window.orientation)}  screen.orientation=${so ? so.type + ' / ' + so.angle + '°' : 'なし'}\n` +
+      `使用角度=${screenAngle()}° (自動:${autoScreenAngle()}° ${angleSrc} / 補正:+${Number(settings.axisOffset) || 0}°)  反転: 上下${settings.invPitch ? 'ON' : 'OFF'} 左右${settings.invRoll ? 'ON' : 'OFF'}\n` +
+      `表示 ${innerWidth}×${innerHeight}  ピッチ=${tgt.pitch.toFixed(1)} バンク=${tgt.roll.toFixed(1)}\n` +
+      `UA: ${ua.slice(0, 110)}`;
+  }
   const fsTarget = document.documentElement;
   if (!(fsTarget.requestFullscreen || fsTarget.webkitRequestFullscreen)) $('btnFull').style.display = 'none';
   $('btnFull').addEventListener('click', () => {
@@ -809,6 +881,7 @@
     el.vsi.setAttribute('transform', `rotate(${f(vsiAngle(st.vsi))})`);
   }
   function renderReadout() {
+    renderDebug(performance.now());
 
     const now = performance.now();
     if (now - roTimer > 150) {
@@ -836,6 +909,7 @@
     st, tgt, sensor, gps, gpsLive, display: 'analog', glass: null,
     get mode() { return mode; },
     get hdgSource() { return hdgSource; },
+    settings, screenAngle, autoScreenAngle,
   };
   setMode('idle');
   requestAnimationFrame(t => { last = t; step(t); });
