@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0b0c0e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="description" content="スマホのジャイロで動く、飛行機の6連計器（シックスパック）を再現した静的Webサイト">
+<title>フライト計器パネル｜シックスパック</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-10 -10 20 20'%3E%3Ccircle r='10' fill='%23111'/%3E%3Cpath d='M-9 0A9 9 0 0 1 9 0Z' fill='%233a86d0'/%3E%3Cpath d='M-9 0A9 9 0 0 0 9 0Z' fill='%238a5a2b'/%3E%3Cpath d='M-6 0H-2L0 2L2 0H6' stroke='%23f39c12' stroke-width='1.5' fill='none'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+    <div id="panel" aria-label="計器パネル">
+      <div class="inst" id="asi" style="grid-area:asi"></div>
+      <div class="inst" id="ai" style="grid-area:ai"></div>
+      <div class="inst" id="alt" style="grid-area:alt"></div>
+      <div class="inst" id="tc" style="grid-area:tc"></div>
+      <div class="inst" id="hi" style="grid-area:hi"></div>
+      <div class="inst" id="vsi" style="grid-area:vsi"></div>
+    </div>
+  </div>
+  <nav id="toolbar">
+    <span id="modeBadge" class="badge">待機中</span>
+    <button id="btnCal" type="button" title="今の姿勢を水平（基準）にします">⊕ <span class="long">水平を</span>校正</button>
+    <button id="btnDemo" type="button" title="自動飛行デモ">▶ デモ</button>
+    <button id="btnSensor" type="button" title="ジャイロセンサーで操縦">📱 センサー</button>
+    <button id="btnFull" type="button" title="全画面表示">⛶</button>
+    <button id="btnHelp" type="button" title="使い方">？</button>
+  </nav>
+  <div id="readout" aria-live="off"></div>
+</div>
+
+<div id="overlay" role="dialog" aria-modal="true" aria-labelledby="ovTitle">
+  <div class="card">
+    <h1 id="ovTitle">✈️ フライト計器パネル</h1>
+    <p class="lead">小型機の「シックスパック」（6連計器）を再現しました。<br>
+    スマホやタブレットを<b>傾ける・回す</b>と、姿勢指示器・方位計・旋回計が実際に動きます。</p>
+    <ul class="howto">
+      <li>センサーを有効にした瞬間の構え方が「水平」の基準になります。</li>
+      <li>手前に起こす＝機首上げ、奥へ倒す＝機首下げ。ハンドルのように回す＝バンク（傾き）。</li>
+      <li>機首を上げると上昇して速度が落ち、下げると降下して加速します。</li>
+      <li>PCではドラッグまたは矢印キーで操縦できます（Spaceで水平に戻す）。</li>
+    </ul>
+    <div class="actions">
+      <button id="ovSensor" class="primary" type="button">📱 センサーを有効にする</button>
+      <button id="ovDemo" type="button">▶ デモを見る（マウス・キー操作）</button>
+    </div>
+    <p id="ovNote" class="note"></p>
+  </div>
+</div>
+<div id="toast" role="status"></div>
+<script src="app.js"></script>
+</body>
+</html>
