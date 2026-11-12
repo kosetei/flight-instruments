@@ -786,6 +786,12 @@
     setSrc(el.hiSrc, hdgSource, hdgSource === 'GPS TRK' ? '#7fe07f' : hdgSource === 'SIM' ? '#aaa' : '#8fc8ff');
   }
   function render() {
+    if (FI.display === 'glass' && FI.glass) {
+      try { FI.glass.render(); } catch (e) { console.error(e); FI.glass.setDisplay('analog'); }
+    } else renderAnalog();
+    renderReadout();
+  }
+  function renderAnalog() {
     renderSources();
     el.asi.setAttribute('transform', `rotate(${f(asiAngle(st.ias))})`);
     const pp = clamp(st.pitch, -45, 45);
@@ -801,6 +807,8 @@
     el.tcBall.setAttribute('cy', f(-40 + 100 * Math.cos(ballA)));
     el.hiCard.setAttribute('transform', `rotate(${f(-st.hdg)})`);
     el.vsi.setAttribute('transform', `rotate(${f(vsiAngle(st.vsi))})`);
+  }
+  function renderReadout() {
 
     const now = performance.now();
     if (now - roTimer > 150) {
@@ -823,7 +831,12 @@
     const alt = gps.hasAlt ? `高度=GPS${gps.altAcc != null ? ' ±' + Math.round(gps.altAcc) + 'm' : ''}` : '高度=SIM(GPS高度なし)';
     return `GPS: 測位OK ±${gps.acc != null ? Math.round(gps.acc) : '?'}m  ${live}  ${alt}  方位=${hdgSource}`;
   }
-  window.__flightInstruments = { st, tgt, sensor, gps }; // for debugging
+  // shared state for the glass cockpit module (glass.js) and debugging
+  const FI = window.__flightInstruments = {
+    st, tgt, sensor, gps, gpsLive, display: 'analog', glass: null,
+    get mode() { return mode; },
+    get hdgSource() { return hdgSource; },
+  };
   setMode('idle');
   requestAnimationFrame(t => { last = t; step(t); });
 })();

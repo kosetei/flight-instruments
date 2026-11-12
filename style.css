@@ -115,3 +115,18 @@ html, body {
   #toolbar { gap: 5px; padding: 6px; }
   #toolbar button { padding: 7px 8px; font-size: 13px; }
 }
+
+/* ---- glass cockpit ---- */
+#glass { display: flex; gap: 8px; align-items: center; justify-content: center; }
+#glass[hidden] { display: none; }
+.gsvg {
+  display: block; background: #000; border-radius: 10px;
+  border: 2px solid #23262b; box-shadow: 0 0 0 4px #0c0d0f, 0 10px 30px rgba(0,0,0,.7);
+}
+.gsvg text { font-family: "Arial Narrow", "Roboto Condensed", "Helvetica Neue", Arial, sans-serif; font-weight: 600; }
+body.glass #readout { display: none; }
+@media (max-width: 480px) {
+  #btnFull { display: none !important; }
+  #toolbar { gap: 4px; padding: 6px 4px; }
+  #toolbar button { padding: 6px 6px; font-size: 12px; }
+}
