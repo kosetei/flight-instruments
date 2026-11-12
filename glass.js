@@ -120,6 +120,7 @@
     <g clip-path="url(#gSpdRollClip)"><g id="gSpdRoll">${[-1, 0, 1, 2].map(k => T(81, CY - k * 18 + 0.5, '', 19, C.w, 'middle', `id="gSpdR${k + 1}"`)).join('')}</g></g>
     ${T(70, 273, '', 12, C.g, 'middle', 'id="gSpdBot"')}
     ${T(70, 32, '', 10, C.w, 'middle', 'id="gSpdTop"')}
+    ${T(16, 288, '', 11, C.g, 'start', 'id="gN1"')}
 
     <!-- altitude tape -->
     <rect x="300" y="${TT}" width="60" height="${TB - TT}" fill="${C.tape}"/>
@@ -204,7 +205,7 @@
     </div>`);
   const glass = $('glass');
   const E = {};
-  ['gAtt', 'gFpv', 'gBankG', 'gBankPtr', 'gSlip', 'gSpdTape', 'gSpdTrend', 'gSpdTrendHead', 'gSpdHi', 'gSpdRoll', 'gSpdBot', 'gSpdTop',
+  ['gAtt', 'gFpv', 'gBankG', 'gBankPtr', 'gSlip', 'gSpdTape', 'gSpdTrend', 'gSpdTrendHead', 'gSpdHi', 'gSpdRoll', 'gSpdBot', 'gSpdTop', 'gN1',
     'gAltTape', 'gAltHi', 'gAltH', 'gAltRoll', 'gAltBot', 'gAltTop', 'gVsPtr', 'gVsTxt', 'gRose', 'gTrend', 'gTrk', 'gHdgTxt', 'gHdgSrc', 'gTurnTxt',
     'gNdRose', 'gNdHalf', 'gNdTrail', 'gNdStart', 'gNdTrk', 'gNdPred', 'gNdHdg', 'gNdHdgSrc', 'gNdSpd', 'gNdSpd2', 'gNdGps', 'gNdPos',
     'gNdStartTxt', 'gNdRng', 'gNdRngHit', 'fma0', 'fma1', 'fma2', 'fma3', 'fma4'].forEach(id => { E[id] = $(id); });
@@ -326,6 +327,8 @@
     txt(E.gSpdTop, gsLive ? 'GS' : 'IAS', gsLive ? C.g : C.w);
     const tas = st.ias * (1 + 0.02 * Math.max(0, st.alt) / 1000);
     txt(E.gSpdBot, gsLive ? `GS ${Math.round(gps.speedKt)}` : `M .${pad(Math.round(clamp(tas / 661.5, 0, 0.99) * 1000), 3)}`, gsLive ? C.g : C.w);
+    const n1 = FI.n1FromThr ? FI.n1FromThr(FI.throttle) : 0;
+    txt(E.gN1, `N1 ${n1.toFixed(1)}`, gsLive ? C.gr : C.g);
 
     // ---- altitude ----
     const alt = st.alt;

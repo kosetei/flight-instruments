@@ -3,7 +3,7 @@
 (() => {
   'use strict';
   // Updated by bump-version.sh together with index.html (?v=) and version.json.
-  const APP_VERSION = '2026.11.12-2032';
+  const APP_VERSION = '2026.11.12-2052';
 
   // ---------- helpers ----------
   const D2R = Math.PI / 180, R2D = 180 / Math.PI;
@@ -782,19 +782,30 @@
   stage.addEventListener('pointercancel', endDrag);
 
   const keys = new Set();
+  const isThrKey = e => {
+    if (e.key === 'PageUp' || e.key === 'PageDown' || e.key === '+' || e.key === '=' || e.key === '-' || e.key === '_') return true;
+    return e.code === 'NumpadAdd' || e.code === 'NumpadSubtract';
+  };
+  const thrDir = e => (e.key === 'PageUp' || e.key === '+' || e.key === '=' || e.code === 'NumpadAdd') ? 'thrUp' : 'thrDown';
   window.addEventListener('keydown', e => {
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
       e.preventDefault();
       if (mode === 'sensor') return;
       if (mode !== 'manual') setMode('manual');
       keys.add(e.key);
+    } else if (isThrKey(e)) {
+      e.preventDefault();
+      keys.add(thrDir(e));
     } else if (e.key === ' ') {
       e.preventDefault(); calibrate();
     } else if (e.key === 'd' || e.key === 'D') {
       startDemo();
     }
   });
-  window.addEventListener('keyup', e => keys.delete(e.key));
+  window.addEventListener('keyup', e => {
+    if (isThrKey(e)) keys.delete(thrDir(e));
+    else keys.delete(e.key);
+  });
   window.addEventListener('blur', () => keys.clear());
 
   // ---------- buttons ----------
@@ -807,6 +818,68 @@
   $('btnCal').addEventListener('click', calibrate);
   $('btnHelp').addEventListener('click', () => { syncSettingsUI(); showOverlay(); });
   $('ovClose').addEventListener('click', hideOverlay);
+
+  // ---------- throttle ----------
+  const throttle = { pos: 70 };
+  const n1FromThr = p => 22 + 0.78 * p;
+  function isJet() { return !!(window.__flightInstruments && window.__flightInstruments.display === 'glass'); }
+  function setThrottle(p) {
+    throttle.pos = clamp(p, 0, 100);
+    const jet = isJet();
+    const n1 = n1FromThr(throttle.pos);
+    const track = $('thrTrack'), fill = $('thrFill'), knob = $('thrKnob');
+    const val = $('thrVal'), cap = $('thrCap'), unit = $('thrUnit'), root = $('throttle');
+    if (!track) return;
+    const pct = throttle.pos;
+    fill.style.height = pct + '%';
+    knob.style.bottom = pct + '%';
+    if (jet) {
+      cap.textContent = 'N1';
+      val.textContent = n1.toFixed(1);
+      if (unit) unit.textContent = '%';
+      root.classList.add('jet');
+    } else {
+      cap.textContent = 'THR';
+      val.textContent = String(Math.round(pct));
+      if (unit) unit.textContent = '%';
+      root.classList.remove('jet');
+    }
+    track.setAttribute('aria-valuenow', String(Math.round(pct)));
+    track.setAttribute('aria-valuetext', jet ? `N1 ${n1.toFixed(1)}パーセント` : `${Math.round(pct)}パーセント`);
+    root.classList.toggle('gps', !!(gpsLive() && gps.speedKt != null));
+  }
+  function bindThrottle() {
+    const track = $('thrTrack'), root = $('throttle');
+    if (!track) return;
+    const fromY = y => {
+      const r = track.getBoundingClientRect();
+      if (r.height < 1) return throttle.pos;
+      return (1 - (y - r.top) / r.height) * 100;
+    };
+    let dragging = false;
+    track.addEventListener('pointerdown', e => {
+      e.preventDefault(); e.stopPropagation();
+      dragging = true;
+      setThrottle(fromY(e.clientY));
+      try { track.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
+    });
+    track.addEventListener('pointermove', e => {
+      if (!dragging) return;
+      e.preventDefault();
+      setThrottle(fromY(e.clientY));
+    });
+    const end = () => { dragging = false; };
+    track.addEventListener('pointerup', end);
+    track.addEventListener('pointercancel', end);
+    track.addEventListener('lostpointercapture', end);
+    root.addEventListener('pointerdown', e => e.stopPropagation());
+    root.addEventListener('wheel', e => {
+      e.preventDefault();
+      setThrottle(throttle.pos - Math.sign(e.deltaY) * (e.shiftKey ? 8 : 3));
+    }, { passive: false });
+    setThrottle(throttle.pos);
+  }
+  bindThrottle();
 
   // ---------- settings & debug ----------
   function syncSettingsUI() {
@@ -845,6 +918,7 @@
       `表示 ${innerWidth}×${innerHeight}  ピッチ=${tgt.pitch.toFixed(1)} バンク=${tgt.roll.toFixed(1)}\n` +
       `rotationRate α=${sensor.rr ? n(sensor.rr[0]) : '-'} β=${sensor.rr ? n(sensor.rr[1]) : '-'} γ=${sensor.rr ? n(sensor.rr[2]) : '-'} °/s  軸割当[${describeMap(CANDS[axisLearn.cur])}]${axisLearn.cur ? ' (自動補正)' : ''} 学習${axisLearn.n}  バイアス ${gyroBias.map(v => v.toFixed(2)).join('/')}\n` +
       `姿勢由来ω x=${sensor.wRef ? n(sensor.wRef[0]) : '-'} y=${sensor.wRef ? n(sensor.wRef[1]) : '-'} z=${sensor.wRef ? n(sensor.wRef[2]) : '-'} → ヨーレート=${sensor.yawRate != null ? n(sensor.yawRate) : '-'}°/s [${sensor.yawSrc || '-'}] (旋回計 ${n(st.turn)}°/s ×${turnK()})  横G=${n(sensor.lat)}\n` +
+      `スロットル ${throttle.pos.toFixed(0)}%  N1 ${n1FromThr(throttle.pos).toFixed(1)}%  モデル=${isJet() ? 'JET' : 'GA'}  IAS=${st.ias.toFixed(1)}  VSI=${st.vsi.toFixed(0)}\n` +
       `UA: ${ua.slice(0, 110)}`;
   }
   const fsTarget = document.documentElement;
@@ -868,11 +942,15 @@
     const dt = clamp((now - last) / 1000, 0, 0.1);
     last = now;
 
+    if (keys.has('thrUp')) setThrottle(throttle.pos + 35 * dt);
+    if (keys.has('thrDown')) setThrottle(throttle.pos - 35 * dt);
+
     if (mode === 'demo' || mode === 'idle') {
       demoT += dt;
       const t = demoT;
-      tgt.pitch = 7 * Math.sin(t * 0.21) + 2.5 * Math.sin(t * 0.67 + 1);
-      tgt.roll = 28 * Math.sin(t * 0.13) + 8 * Math.sin(t * 0.41 + 2);
+      const amp = isJet() ? 0.7 : 1;
+      tgt.pitch = (7 * Math.sin(t * 0.21) + 2.5 * Math.sin(t * 0.67 + 1)) * amp;
+      tgt.roll = (28 * Math.sin(t * 0.13) + 8 * Math.sin(t * 0.41 + 2)) * amp;
       tgt.slip = 0.12 * Math.sin(t * 0.9);
     } else if (mode === 'manual') {
       if (keys.has('ArrowLeft')) manual.roll -= 45 * dt;
@@ -912,12 +990,27 @@
     } else { st.turnLp = st.turn = smooth(st.turn, tgt.turn, dt, 0.35); }
     st.slip = smooth(st.slip, tgt.slip, dt, 0.3);
 
-    // flight model (fun, not certified!)
+    // flight model (fun, not certified!). Analog = light aircraft, glass = airliner.
+    // GPS speed/altitude, when live, still override the sim.
     const p = clamp(st.pitch, -40, 40);
+    const jet = isJet();
     const bankLoss = 1 / Math.max(0.35, Math.cos(clamp(st.roll, -70, 70) * D2R));
-    const iasTarget = clamp(105 - 3.6 * p - (bankLoss - 1) * 12, 35, 195);
+    const thr = throttle.pos / 100;
+    // Level-flight trim IAS vs thrust lever
+    const vTrim = jet
+      ? (thr < 0.45 ? 130 + (180 - 130) * (thr / 0.45)
+        : thr < 0.75 ? 180 + (280 - 180) * ((thr - 0.45) / 0.30)
+        : 280 + (340 - 280) * ((thr - 0.75) / 0.25))
+      : (thr < 0.70 ? 55 + (108 - 55) * (thr / 0.70)
+        : 108 + (155 - 108) * ((thr - 0.70) / 0.30));
+    const pitchPen = (jet ? 3.0 : 2.6) * p;
+    const bankPen = (bankLoss - 1) * (jet ? 18 : 12);
+    const vMin = jet ? 115 : 42;
+    const vMax = jet ? 360 : 195;
+    const iasTarget = clamp(vTrim - pitchPen - bankPen, vMin, vMax);
     const gsLive = gpsLive() && gps.speedKt != null;
-    st.ias = gsLive ? smooth(st.ias, gps.speedKt, dt, 0.6) : smooth(st.ias, iasTarget, dt, p > 0 ? 3.5 : 2.5);
+    const tauIas = gsLive ? 0.6 : jet ? (p > 2 ? 20 : 16) : (p > 2 ? 5 : 3.5);
+    st.ias = smooth(st.ias, gsLive ? gps.speedKt : iasTarget, dt, tauIas);
     const altLive = gpsLive() && gps.hasAlt;
     if (altLive) {
       // extrapolate filtered GPS altitude between fixes, then smooth for display
@@ -929,10 +1022,13 @@
       requestAnimationFrame(step);
       return;
     }
-    const sink = (bankLoss - 1) * 250; // steep turns sink a bit
-    let vsTrue = st.ias * 101.27 * Math.sin(p * D2R) * 0.9 - sink;
+    const sink = (bankLoss - 1) * (jet ? 400 : 250);
+    let vsTrue = st.ias * 101.27 * Math.sin(p * D2R) * (jet ? 0.85 : 0.55) - sink;
+    if (st.ias < vMin + 12 && vsTrue > 0) vsTrue *= Math.max(0, (st.ias - vMin) / 12);
+    if (st.ias < vMin) vsTrue = Math.min(vsTrue, (st.ias - vMin) * (jet ? 80 : 40));
+    vsTrue = clamp(vsTrue, jet ? -5000 : -2200, jet ? 4500 : 1800);
     if (st.alt <= 0 && vsTrue < 0) vsTrue = 0;
-    st.vsi = smooth(st.vsi, vsTrue, dt, 1.2);
+    st.vsi = smooth(st.vsi, vsTrue, dt, jet ? 1.6 : 1.2);
     st.alt = Math.max(0, st.alt + vsTrue / 60 * dt);
     if (st.alt <= 0 && st.vsi < 0) st.vsi = smooth(st.vsi, 0, dt, 0.3);
 
@@ -965,6 +1061,7 @@
       try { FI.glass.render(); } catch (e) { console.error(e); FI.glass.setDisplay('analog'); }
     } else renderAnalog();
     renderReadout();
+    setThrottle(throttle.pos);
   }
   function renderAnalog() {
     renderSources();
@@ -995,7 +1092,8 @@
       el.readout.textContent =
         `[${el.badge.textContent}] ピッチ ${st.pitch.toFixed(1).padStart(6)}°  バンク ${st.roll.toFixed(1).padStart(6)}°\n` +
         `方位 ${String(Math.round(st.hdg) % 360).padStart(3, '0')}°${hdgSrc}  旋回 ${st.turn.toFixed(1)}°/s\n` +
-        `速度 ${Math.round(st.ias)}kt  高度 ${Math.round(st.alt)}ft  昇降 ${Math.round(st.vsi)}fpm` +
+        `速度 ${Math.round(st.ias)}kt  高度 ${Math.round(st.alt)}ft  昇降 ${Math.round(st.vsi)}fpm  ` +
+        (isJet() ? `N1 ${n1FromThr(throttle.pos).toFixed(1)}%` : `THR ${Math.round(throttle.pos)}%`) +
         (gps.on ? '\n' + gpsStatusLine() : '');
       updateGpsButton();
     }
@@ -1012,6 +1110,8 @@
     st, tgt, sensor, gps, gpsLive, display: 'analog', glass: null,
     get mode() { return mode; },
     get hdgSource() { return hdgSource; },
+    get throttle() { return throttle.pos; },
+    setThrottle, n1FromThr, setMode, isJet,
     settings, screenAngle, autoScreenAngle, axisLearn, CANDS, version: APP_VERSION,
   };
   // ---------- version / cache busting ----------

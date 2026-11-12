@@ -11,19 +11,36 @@
 <meta name="description" content="スマホのジャイロで動く、飛行機の6連計器（シックスパック）を再現した静的Webサイト">
 <title>フライト計器パネル｜シックスパック</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-10 -10 20 20'%3E%3Ccircle r='10' fill='%23111'/%3E%3Cpath d='M-9 0A9 9 0 0 1 9 0Z' fill='%233a86d0'/%3E%3Cpath d='M-9 0A9 9 0 0 0 9 0Z' fill='%238a5a2b'/%3E%3Cpath d='M-6 0H-2L0 2L2 0H6' stroke='%23f39c12' stroke-width='1.5' fill='none'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="style.css?v=2026.11.12-2032">
+<link rel="stylesheet" href="style.css?v=2026.11.12-2052">
 </head>
 <body>
 <div id="app">
-  <div id="stage">
-    <div id="panel" aria-label="計器パネル">
-      <div class="inst" id="asi" style="grid-area:asi"></div>
-      <div class="inst" id="ai" style="grid-area:ai"></div>
-      <div class="inst" id="alt" style="grid-area:alt"></div>
-      <div class="inst" id="tc" style="grid-area:tc"></div>
-      <div class="inst" id="hi" style="grid-area:hi"></div>
-      <div class="inst" id="vsi" style="grid-area:vsi"></div>
+  <div id="cockpit">
+    <div id="stage">
+      <div id="panel" aria-label="計器パネル">
+        <div class="inst" id="asi" style="grid-area:asi"></div>
+        <div class="inst" id="ai" style="grid-area:ai"></div>
+        <div class="inst" id="alt" style="grid-area:alt"></div>
+        <div class="inst" id="tc" style="grid-area:tc"></div>
+        <div class="inst" id="hi" style="grid-area:hi"></div>
+        <div class="inst" id="vsi" style="grid-area:vsi"></div>
+      </div>
     </div>
+    <aside id="throttle" aria-label="スロットル">
+      <div class="thr-cap" id="thrCap">THR</div>
+      <div class="thr-track" id="thrTrack" role="slider" aria-valuemin="0" aria-valuemax="100" aria-valuenow="70" aria-valuetext="70パーセント" aria-orientation="vertical" tabindex="0">
+        <div class="thr-ticks" aria-hidden="true">
+          <span style="bottom:100%"></span>
+          <span style="bottom:75%"></span>
+          <span style="bottom:50%"></span>
+          <span style="bottom:25%"></span>
+          <span style="bottom:0%"></span>
+        </div>
+        <div class="thr-fill" id="thrFill"></div>
+        <div class="thr-knob" id="thrKnob"></div>
+      </div>
+      <div class="thr-val"><span id="thrVal">70</span><span class="thr-unit" id="thrUnit">%</span></div>
+    </aside>
   </div>
   <nav id="toolbar">
     <span id="modeBadge" class="badge">待機中</span>
@@ -46,10 +63,12 @@
     <ul class="howto">
       <li>センサーを有効にした瞬間の構え方が「水平」の基準になります。</li>
       <li>手前に起こす＝機首上げ、奥へ倒す＝機首下げ。ハンドルのように回す＝バンク（傾き）。</li>
+      <li>右端のスロットル（0〜100%）で推力を変えられます。上げると加速・上昇しやすく、下げると減速します。</li>
       <li>機首を上げると上昇して速度が落ち、下げると降下して加速します。</li>
-      <li>GPSを使うと速度計・高度計・昇降計・方位計が実測値になります（姿勢指示器と旋回計はジャイロのまま）。</li>
+      <li>グラスコックピット表示では旅客機らしい速度（約130〜330kt）と慣性になります。アナログは小型機（約50〜160kt）です。</li>
+      <li>GPSを使うと速度計・高度計・昇降計・方位計が実測値になります（姿勢指示器と旋回計はジャイロのまま。スロットルはシミュレーション時のみ効きます）。</li>
       <li>下のバーの「▭ グラス」で旅客機風のグラスコックピット表示（PFD／ND）に切り替えられます。</li>
-      <li>PCではドラッグまたは矢印キーで操縦できます（Spaceで水平に戻す）。</li>
+      <li>PCではドラッグまたは矢印キーで操縦、スロットルは <b>PageUp / PageDown</b> または <b>+ / −</b>（Spaceで水平に戻す）。</li>
     </ul>
     <label class="opt"><input type="checkbox" id="ovGps"> 📡 GPSも使う（実際の対地速度・高度・昇降率・針路を表示。屋外・乗り物・飛行機の窓際向け）</label>
     <div class="actions">
@@ -95,7 +114,7 @@
 </div>
 <div id="toast" role="status"></div>
 <pre id="debug" hidden></pre>
-<script src="app.js?v=2026.11.12-2032"></script>
-<script src="glass.js?v=2026.11.12-2032"></script>
+<script src="app.js?v=2026.11.12-2052"></script>
+<script src="glass.js?v=2026.11.12-2052"></script>
 </body>
 </html>
