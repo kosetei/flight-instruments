@@ -9,6 +9,7 @@
   const wrap360 = a => ((a % 360) + 360) % 360;
   const wrap180 = a => { a = wrap360(a); return a > 180 ? a - 360 : a; };
   const f = n => (Math.round(n * 100) / 100).toString();
+  const fh = n => (Math.round(n * 10000) / 10000).toString(); // heading card: sub-degree, not 0.01° steps
   const $ = id => document.getElementById(id);
   const pad = (n, w) => String(n).padStart(w, '0');
 
@@ -359,7 +360,7 @@
 
     // ---- heading ----
     const hdg = wrap360(st.hdg);
-    setT(E.gRose, `rotate(${f(-hdg)} 200 368)`);
+    setT(E.gRose, `rotate(${fh(-hdg)} 200 368)`);
     txt(E.gHdgTxt, pad(Math.round(hdg) % 360 || 360, 3));
     const srcLbl = hdgSrc === 'GPS TRK' ? 'TRK' : hdgSrc === 'COMPASS' ? 'MAG' : hdgSrc === 'SIM' ? 'SIM' : 'REL';
     txt(E.gHdgSrc, srcLbl, hdgSrc === 'GPS TRK' || hdgSrc === 'COMPASS' ? C.g : hdgSrc === 'SIM' ? C.w : C.a);
@@ -381,7 +382,7 @@
     const gs = gsLive ? gps.speedKt : st.ias;
     const trk = live && gps.track != null ? gps.track : hdg;
     updateTrail(dt, gs, trk);
-    setT(E.gNdRose, `rotate(${f(-hdg)} ${AX} ${AY})`);
+    setT(E.gNdRose, `rotate(${fh(-hdg)} ${AX} ${AY})`);
     txt(E.gNdHdg, pad(Math.round(hdg) % 360 || 360, 3));
     txt(E.gNdHdgSrc, srcLbl, hdgSrc === 'GPS TRK' || hdgSrc === 'COMPASS' ? C.g : hdgSrc === 'SIM' ? C.w : C.a);
     setT(E.gNdTrk, `rotate(${f(wrap180(trk - hdg))} ${AX} ${AY})`);

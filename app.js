@@ -3,7 +3,7 @@
 (() => {
   'use strict';
   // Updated by bump-version.sh together with index.html (?v=) and version.json.
-  const APP_VERSION = '2026.11.12-2107';
+  const APP_VERSION = '2026.11.12-2123';
 
   // ---------- helpers ----------
   const D2R = Math.PI / 180, R2D = 180 / Math.PI;
@@ -959,6 +959,26 @@
   // ---------- simulation loop ----------
   let last = performance.now();
   function smooth(cur, target, dt, tau) { return cur + (target - cur) * (1 - Math.exp(-dt / tau)); }
+  // Estimated heading rate from quantized / low-rate references (compass or GPS track),
+  // used only when the gyro yaw rate is unavailable.
+  const hdgCoast = { rate: 0, ref: null, at: 0 };
+  function updateHdgCoast(now, ref) {
+    if (hdgCoast.ref == null) { hdgCoast.ref = ref; hdgCoast.at = now; return; }
+    const d = wrap180(ref - hdgCoast.ref);
+    const dtRef = (now - hdgCoast.at) / 1000;
+    if (Math.abs(d) >= 0.45) {
+      if (dtRef > 0.04 && dtRef < 3) {
+        const inst = clamp(d / dtRef, -40, 40);
+        hdgCoast.rate += (inst - hdgCoast.rate) * (1 - Math.exp(-Math.min(dtRef, 0.5) / 0.35));
+      }
+      hdgCoast.ref = ref;
+      hdgCoast.at = now;
+    } else if (dtRef > 1.8) {
+      hdgCoast.rate = 0;
+      hdgCoast.ref = ref;
+      hdgCoast.at = now;
+    }
+  }
 
   function step(now) {
     const dt = clamp((now - last) / 1000, 0, 0.1);
@@ -999,12 +1019,32 @@
     if (useTrack) tgt.hdg = gps.track;
     hdgSource = useTrack ? 'GPS TRK' : mode === 'sensor' ? (sensor.compass != null || sensor.absolute ? 'COMPASS' : 'GYRO (REL)') : 'SIM';
 
-    if (mode === 'sensor' && performance.now() - Math.max(sensor.rrSeenAt || 0, sensor.wRefAt || 0) > 600) tgt.turn = 0;
+    const nowH = performance.now();
+    if (mode === 'sensor' && nowH - Math.max(sensor.rrSeenAt || 0, sensor.wRefAt || 0) > 600) tgt.turn = 0;
 
     const tau = mode === 'sensor' ? 0.12 : 0.25;
     st.pitch = smooth(st.pitch, tgt.pitch, dt, tau);
     st.roll = st.roll + wrap180(tgt.roll - st.roll) * (1 - Math.exp(-dt / tau));
-    st.hdg = wrap360(st.hdg + wrap180(tgt.hdg - st.hdg) * (1 - Math.exp(-dt / (mode === 'sensor' ? 0.25 : 0.05))));
+    // Heading: wrap-aware complementary filter. Compass / GPS track are often
+    // integer degrees at a low rate (iOS webkitCompassHeading, GPS at ~1 Hz),
+    // which made the rose jump 1° at a time. Integrate the raw yaw rate
+    // (never turnK / dead-zone — those are only for the turn coordinator)
+    // and pull slowly toward the reference so the card moves continuously.
+    const gyroAge = nowH - Math.max(sensor.rrSeenAt || 0, sensor.wRefAt || 0);
+    const gyroYaw = (sensor.yawRate != null && gyroAge <= 600) ? sensor.yawRate : null;
+    const hdgRef = (mode === 'sensor' || useTrack);
+    if (hdgRef) {
+      updateHdgCoast(nowH, tgt.hdg);
+      const yaw = gyroYaw != null ? gyroYaw : hdgCoast.rate;
+      const err = wrap180(tgt.hdg - st.hdg);
+      if (Math.abs(err) > 40) st.hdg = wrap360(tgt.hdg); // startup / source switch
+      else {
+        st.hdg = wrap360(st.hdg + yaw * dt);
+        st.hdg = wrap360(st.hdg + err * (1 - Math.exp(-dt / 0.45)));
+      }
+    } else {
+      st.hdg = wrap360(st.hdg + wrap180(tgt.hdg - st.hdg) * (1 - Math.exp(-dt / 0.05)));
+    }
     if (mode === 'sensor') {
       const tt = turnTau() / 2;
       st.turnLp = smooth(st.turnLp || 0, tgt.turn, dt, tt);
@@ -1100,7 +1140,7 @@
     const ballA = clamp(st.slip * 40, -15, 15) * D2R;
     el.tcBall.setAttribute('cx', f(100 * Math.sin(ballA)));
     el.tcBall.setAttribute('cy', f(-40 + 100 * Math.cos(ballA)));
-    el.hiCard.setAttribute('transform', `rotate(${f(-st.hdg)})`);
+    el.hiCard.setAttribute('transform', `rotate(${(Math.round(-st.hdg * 10000) / 10000)})`);
     el.vsi.setAttribute('transform', `rotate(${f(vsiAngle(st.vsi))})`);
   }
   function renderReadout() {
