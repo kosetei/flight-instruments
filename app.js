@@ -3,7 +3,7 @@
 (() => {
   'use strict';
   // Updated by bump-version.sh together with index.html (?v=) and version.json.
-  const APP_VERSION = '2026.11.13-0747';
+  const APP_VERSION = '2026.11.13-1759';
 
   // ---------- helpers ----------
   const D2R = Math.PI / 180, R2D = 180 / Math.PI;
@@ -659,7 +659,7 @@
   // ---------- GPS ----------
   const gps = {
     on: false, watchId: null, fix: false, lastFixAt: 0, acc: null, altAcc: null,
-    speedKt: null, speedSrc: '', track: null,
+    speedKt: null, speedSrc: '', track: null, trackAt: 0,
     altFt: null, vFpm: 0, altInit: false, last: null, errMsg: '',
   };
   const M2FT = 3.28084, MS2KT = 1.943844;
@@ -700,9 +700,11 @@
 
     // --- track ---
     if (gps.speedKt != null && gps.speedKt > 3) {
-      if (num_(c.heading)) gps.track = wrap360(c.heading);
-      else if (prev && haversine(prev, cur) > Math.max(3, (cur.acc || 0) * 0.5)) gps.track = bearing(prev, cur);
-    } else gps.track = null;
+      if (num_(c.heading)) { gps.track = wrap360(c.heading); gps.trackAt = performance.now(); }
+      else if (prev && haversine(prev, cur) > Math.max(3, (cur.acc || 0) * 0.5)) {
+        gps.track = bearing(prev, cur); gps.trackAt = performance.now();
+      }
+    } else { gps.track = null; gps.trackAt = 0; }
 
     // --- altitude: alpha-beta filter (position + vertical velocity) ---
     if (num_(c.altitude)) {
@@ -742,7 +744,7 @@
     if (gps.on) return;
     if (!('geolocation' in navigator)) { toast('このブラウザは位置情報（GPS）に対応していません'); return; }
     if (!window.isSecureContext) { toast('GPSの利用にはHTTPS接続が必要です'); return; }
-    gps.on = true; gps.fix = false; gps.last = null; gps.speedKt = null; gps.track = null; gps.altInit = false; gps.hasAlt = false; gps.errMsg = ''; gps.warned = false;
+    gps.on = true; gps.fix = false; gps.last = null; gps.speedKt = null; gps.track = null; gps.trackAt = 0; gps.altInit = false; gps.hasAlt = false; gps.errMsg = ''; gps.warned = false;
     try {
       gps.watchId = navigator.geolocation.watchPosition(onGpsPosition, onGpsError, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
     } catch (e) { gps.on = false; toast('GPSを開始できませんでした'); }
@@ -1072,6 +1074,28 @@
       hdgCoast.at = now;
     }
   }
+  // GPS track is a sparse (~1 Hz) measurement. Do not pull toward a stale
+  // value every frame (that fights the gyro and makes 1 Hz steps). Correct
+  // only when a new fix arrives, and spread that residual over several seconds.
+  const HDG_GPS_TAU = 4;
+  const HDG_HANDOFF_TAU = 1.8;
+  const HDG_COMPASS_TAU = 0.45;
+  const hdgFilt = { wasTrack: false, lastTrackAt: 0, largeN: 0, corr: 0, tau: HDG_GPS_TAU, handOffUntil: 0 };
+  function applyHdgCorr(dt) {
+    if (hdgFilt.corr === 0) return;
+    const k = 1 - Math.exp(-dt / hdgFilt.tau);
+    const d = hdgFilt.corr * k;
+    st.hdg = wrap360(st.hdg + d);
+    hdgFilt.corr -= d;
+    if (Math.abs(hdgFilt.corr) < 0.001) hdgFilt.corr = 0;
+  }
+  function gpsTrackUsable() {
+    if (!(gpsLive() && gps.track != null && gps.speedKt != null && gps.speedKt > 3)) return false;
+    if (gps.acc != null && gps.acc > 80) return false;
+    const age = performance.now() - (gps.trackAt || gps.lastFixAt || 0);
+    if (age > 4000) return false;
+    return true;
+  }
 
   function step(now) {
     const dt = clamp((now - last) / 1000, 0, 0.1);
@@ -1132,7 +1156,7 @@
 
     // GPS: stale fix detection & ground track overrides heading
     if (gps.on && gps.fix && performance.now() - gps.lastFixAt > 12000) { gps.fix = false; gps.errMsg = '信号が途絶えました'; }
-    const useTrack = gpsLive() && gps.track != null && gps.speedKt != null && gps.speedKt > 3;
+    const useTrack = gpsTrackUsable();
     if (useTrack) tgt.hdg = gps.track;
     hdgSource = useTrack ? 'GPS TRK' : mode === 'sensor' ? (sensor.compass != null || sensor.absolute ? 'COMPASS' : 'GYRO (REL)') : 'SIM';
 
@@ -1147,17 +1171,49 @@
     // which made the rose jump 1° at a time. Integrate the raw yaw rate
     // (never turnK / dead-zone — those are only for the turn coordinator)
     // and pull slowly toward the reference so the card moves continuously.
+    // GPS track is applied only on a new fix (see hdgFilt), not every frame.
     const gyroAge = nowH - Math.max(sensor.rrSeenAt || 0, sensor.wRefAt || 0);
     const gyroYaw = (sensor.yawRate != null && gyroAge <= 600) ? sensor.yawRate : null;
-    const hdgRef = (mode === 'sensor' || useTrack);
-    if (hdgRef) {
+    const hdgYaw = () => (gyroYaw != null ? gyroYaw : hdgCoast.rate);
+    if (useTrack !== hdgFilt.wasTrack) {
+      hdgFilt.wasTrack = useTrack;
+      hdgFilt.largeN = 0;
+      hdgFilt.handOffUntil = nowH + 2000;
+      hdgFilt.tau = HDG_HANDOFF_TAU;
+      hdgFilt.corr = wrap180((useTrack ? gps.track : tgt.hdg) - st.hdg);
+      if (useTrack) hdgFilt.lastTrackAt = gps.trackAt || gps.lastFixAt || 0;
+    }
+    if (useTrack) {
       updateHdgCoast(nowH, tgt.hdg);
-      const yaw = gyroYaw != null ? gyroYaw : hdgCoast.rate;
+      st.hdg = wrap360(st.hdg + hdgYaw() * dt);
+      const trackAt = gps.trackAt || gps.lastFixAt || 0;
+      if (trackAt && trackAt !== hdgFilt.lastTrackAt) {
+        hdgFilt.lastTrackAt = trackAt;
+        const err = wrap180(tgt.hdg - st.hdg);
+        const handing = nowH < hdgFilt.handOffUntil;
+        if (Math.abs(err) > 25) hdgFilt.largeN++;
+        else hdgFilt.largeN = 0;
+        if (!handing && hdgFilt.largeN >= 3 && Math.abs(err) > 60) {
+          // several consecutive wildly off fixes: catch up, don't follow one noisy sample
+          st.hdg = wrap360(st.hdg + err);
+          hdgFilt.corr = 0;
+          hdgFilt.largeN = 0;
+        } else if (handing || hdgFilt.largeN === 0 || hdgFilt.largeN >= 2) {
+          // ignore a single large outlier; small residuals and confirmed errors blend in
+          hdgFilt.corr = err;
+          if (!handing) hdgFilt.tau = HDG_GPS_TAU;
+        }
+      }
+      applyHdgCorr(dt);
+    } else if (mode === 'sensor') {
+      updateHdgCoast(nowH, tgt.hdg);
       const err = wrap180(tgt.hdg - st.hdg);
-      if (Math.abs(err) > 40) st.hdg = wrap360(tgt.hdg); // startup / source switch
+      const handing = nowH < hdgFilt.handOffUntil;
+      if (Math.abs(err) > 40 && !handing) st.hdg = wrap360(tgt.hdg); // startup
       else {
-        st.hdg = wrap360(st.hdg + yaw * dt);
-        st.hdg = wrap360(st.hdg + err * (1 - Math.exp(-dt / 0.45)));
+        st.hdg = wrap360(st.hdg + hdgYaw() * dt);
+        if (handing || hdgFilt.corr !== 0) applyHdgCorr(dt);
+        else st.hdg = wrap360(st.hdg + err * (1 - Math.exp(-dt / HDG_COMPASS_TAU)));
       }
     } else {
       st.hdg = wrap360(st.hdg + wrap180(tgt.hdg - st.hdg) * (1 - Math.exp(-dt / 0.05)));
